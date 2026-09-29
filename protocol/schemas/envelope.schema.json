@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockmind.dev/schemas/0.1/envelope.schema.json",
+  "title": "BlockMind protocol envelope",
+  "type": "object",
+  "required": ["protocol", "id", "type", "payload"],
+  "properties": {
+    "protocol": {"const": "0.1.0"},
+    "id": {"type": "string", "minLength": 1},
+    "type": {"enum": ["hello", "observation", "action", "action_result", "event", "control"]},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": false
+}

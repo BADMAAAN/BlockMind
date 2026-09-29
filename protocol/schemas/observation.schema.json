@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockmind.dev/schemas/0.1/observation.schema.json",
+  "title": "BlockMind observation payload",
+  "type": "object",
+  "required": ["tick", "player", "blocks", "hazards"],
+  "properties": {
+    "tick": {"type": "integer", "minimum": 0},
+    "player": {"type": "object"},
+    "blocks": {"type": "array", "items": {"type": "object"}},
+    "entities": {"type": "array", "items": {"type": "object"}},
+    "hazards": {"type": "array", "items": {"type": "object"}}
+  }
+}

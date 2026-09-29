@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+dist/
+*.egg-info/
+
+# Java / Gradle
+.gradle/
+build/
+**/build/
+*.class
+hs_err_pid*
+replay_pid*
+
+# IDE and operating-system files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# Local configuration and sensitive files
+.env
+.env.*
+!.env.example
+local.properties
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.*
+secrets.*
+
+# Minecraft development runtime and personal worlds
+run/
+**/run/
+saves/
+**/saves/
+logs/
+**/logs/
+crash-reports/
+**/crash-reports/
+screenshots/
+**/screenshots/
+resourcepacks/
+**/resourcepacks/
+shaderpacks/
+**/shaderpacks/
+options.txt
+servers.dat
+usercache.json
+usernamecache.json
+authlib-injector.log
+
+# Generated BlockMind data
+projects/*.json
+!projects/.gitkeep
+test-results/
+tmp/
+temp/

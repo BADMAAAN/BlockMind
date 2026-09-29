@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockmind.dev/schemas/0.1/action.schema.json",
+  "title": "BlockMind action payload",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": {"enum": ["navigate", "cancel_navigation", "look", "set_input", "select_hotbar", "place_block", "break_block", "use_item", "interact", "observe_block"]},
+    "position": {"$ref": "#/$defs/position"},
+    "target": {"$ref": "#/$defs/position"},
+    "block": {"type": "string"},
+    "goal": {"enum": ["go_to", "approach", "move_to_build_position", "follow", "explore", "return_to"]},
+    "tolerance": {"type": "number", "minimum": 0},
+    "avoidHazards": {"type": "boolean"}
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}, "z": {"type": "integer"}},
+      "additionalProperties": false
+    }
+  }
+}
