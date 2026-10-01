@@ -89,7 +89,8 @@ def main():
             result["performance"] = project["performance"]
             result["benchmark"] = "partial vertical access" if args.benchmark_access else "partial foundation" if args.benchmark_blocks else "full acceptance house"
         except Exception as exc:
-            result["error"] = str(exc)
+            result["error_type"] = type(exc).__name__
+            result["error"] = str(exc) or type(exc).__name__
             checkpoints = list((directory / "projects").glob("*.json"))
             if checkpoints:
                 checkpoint = json.loads(checkpoints[0].read_text(encoding="utf-8"))
@@ -107,6 +108,12 @@ def main():
                         subprocess.run(["taskkill", "/PID", str(client.pid), "/T", "/F"], capture_output=True)
                     else:
                         client.terminate()
+            result["client_exit_code"] = client.poll()
+            if result.get("verified") and result["client_exit_code"] != 0:
+                result["world_validation_verified"] = True
+                result["verified"] = False
+                result["error"] = "world validation passed but client-test process did not exit successfully"
+            (directory / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             print(json.dumps(result, indent=2))
     return 0 if result.get("verified") and client.returncode == 0 else 1
 
