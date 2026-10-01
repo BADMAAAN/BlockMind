@@ -1,0 +1,21 @@
+{
+  "date_utc": "2026-10-01",
+  "scope": "64 foundation blocks from the 1402-block acceptance house; NOT full-house acceptance",
+  "minecraft": "1.21.11",
+  "fabric_loader": "0.19.5",
+  "fabric_api": "0.141.6+1.21.11",
+  "baritone": "1.17.0",
+  "adapter": "0.1.1-dev",
+  "protocol": "0.1.0",
+  "environment": "Windows, Temurin JDK 25.0.4.1, isolated flat Creative client-test world",
+  "origin": [100, -60, 100],
+  "max_action_batch": 16,
+  "samples_per_profile": 1,
+  "controlled_first_placement_failure": true,
+  "request_count_scope": "snapshot before final metrics/finish requests; excludes handshake and unsolicited observations",
+  "results": [
+    {"profile": "safe", "run": "20261001T203735", "total_run_seconds": 64.75351419998333, "builder_elapsed_seconds": 64.61082139998325, "blocks_per_builder_second": 0.9905461440243598, "navigation_seconds": 27.441844899964053, "individual_verification_seconds": 6.0740839000209235, "final_verification_seconds": 1.7712748000049032, "navigation_requests": 63, "observe_requests": 268, "request_result_round_trips": 728, "batches": 0, "rotations": 126, "slot_switches": 0, "expected": 64, "correct": 64, "missing": 0, "incorrect": 0, "extra_permanent": 0, "temporary_remaining": 0, "verified": true, "master_volume": [1, 0, 1]},
+    {"profile": "fast", "run": "20261001T204339", "total_run_seconds": 31.40782890000264, "builder_elapsed_seconds": 31.262711500021396, "blocks_per_builder_second": 2.047167277859318, "navigation_seconds": 20.40801020001527, "individual_verification_seconds": 0.5554736999911256, "component_verification_seconds": 0.07438649999676272, "final_verification_seconds": 1.7872684000176378, "navigation_requests": 14, "observe_requests": 48, "request_result_round_trips": 196, "batches": 8, "component_repairs": 6, "rotations": 65, "slot_switches": 0, "expected": 64, "correct": 64, "missing": 0, "incorrect": 0, "extra_permanent": 0, "temporary_remaining": 0, "verified": true, "master_volume": [1, 0, 1]},
+    {"profile": "max", "run": "20261001T204839", "total_run_seconds": 35.97078040000633, "builder_elapsed_seconds": 35.864180199976545, "blocks_per_builder_second": 1.7845103287776214, "navigation_seconds": 22.57671809999738, "individual_verification_seconds": 0.8519036999787204, "component_verification_seconds": 0.052488100016489625, "final_verification_seconds": 2.0967650999955367, "navigation_requests": 20, "observe_requests": 72, "request_result_round_trips": 256, "batches": 7, "component_repairs": 8, "rotations": 73, "slot_switches": 0, "expected": 64, "correct": 64, "missing": 0, "incorrect": 0, "extra_permanent": 0, "temporary_remaining": 0, "verified": true, "master_volume": [1, 0, 1]}
+  ]
+}

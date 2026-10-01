@@ -2,12 +2,14 @@
 
 ## v0.1 — Creative autonomous building
 
-- Harden live Fabric session lifecycle and protocol backpressure.
-- Run and record the acceptance house in a real 1.21.11 Creative world.
-- Add collision-aware interaction-position selection and multi-shape scaffolds.
-- Add a high-level AI intent provider with deterministic schema validation and a no-AI fallback.
-- Add resumable project loading and repair planning.
-- Add richer route constraints, health thresholds, and Baritone event integration.
+- Implemented foundations: negotiated capabilities, bounded transport, priority controls, resumable checkpoints/world reconciliation, deterministic interaction candidates, property verification, bounded local repair and owned temporary access.
+- Implemented performance pass: Creative speed policies, raw-plan-independent ordering, position reuse/local movement, bounded tick-aware batches, adaptive component repair/final reconciliation, aggregate metrics and master-volume controls. 64-block LIVE tests measured FAST at 2.06× baseline throughput; full-house acceptance remains incomplete. See [measurements](docs/PERFORMANCE.md).
+- Six version-specific artifacts build; see [compatibility evidence](docs/COMPATIBILITY.md). No full runtime-supported version yet.
+- Blocking milestone: finish and record the acceptance house using real player actions in a disposable Creative world, including controlled recovery, scaffold cleanup and final validation.
+- Verify directional/stateful placement and navigation/fall guards in-game across each target.
+- Improve access planning for obstructed interiors and upper floors; current bounded ramps/platforms are not a general scaffold planner.
+- Add a high-level AI provider implementation with schema validation; the `IntentProvider` boundary and deterministic fallback exist.
+- Add richer route constraints and Baritone event-based failure reasons.
 
 ## v0.2 — Editing and references
 

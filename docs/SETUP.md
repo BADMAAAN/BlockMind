@@ -1,72 +1,128 @@
-# Local setup and execution
+# Experimental local setup
 
-## Pinned target
+No stable release or complete live-MVP claim. Exact pins and evidence are in [COMPATIBILITY.md](COMPATIBILITY.md); test outcomes in [LIVE_TESTING.md](LIVE_TESTING.md).
 
-| Component | Version |
-|---|---:|
-| Minecraft Java Edition | 1.21.11 |
-| Java | 21 |
-| Fabric Loader | 0.19.5 |
-| Yarn mappings | 1.21.11+build.6 |
-| Fabric API | 0.141.6+1.21.11 |
-| Fabric Loom | 1.14.10 |
-| Gradle wrapper | 9.2.1 |
-| Baritone (optional) | 1.17.0 API Fabric |
-| BlockMind protocol | 0.1.0 |
+## Core
 
-The pinned coordinates came from the official [Fabric metadata/development service](https://fabricmc.net/develop/) and the official [Baritone 1.21.11 release line](https://github.com/cabaletta/baritone/tree/1.21.11). See [BARITONE.md](BARITONE.md) for the integration decision.
-
-## 1. Install the core
+Python 3.11+:
 
 ```powershell
-cd blockmind
+git clone https://github.com/BADMAAAN/BlockMind.git
+cd BlockMind
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install -e '.[test]'
 python -m unittest discover -s tests -v
+python -m compileall -q ai-core/src tests scripts
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --simulate --origin 0 64 0
 ```
 
-## 2. Build the mod
+Simulation explicitly logs `MODE: SIMULATION`; it models blocks, not Minecraft physics. The acceptance geometry now has 1,402 expected world blocks (includes the upper door half and sealed pool bottom). One door item creates two expected blocks.
 
-Point `JAVA_HOME` at a Java 21 JDK, then:
+## Build one or all adapters
+
+Use JDK **25** for Gradle/Loom; game Java minimum is separate (17/21/25 in the matrix). `JAVA_HOME` must point to the JDK directory.
 
 ```powershell
+python scripts/build_adapters.py --java-home 'C:\path\to\jdk-25' --clean
+# Or one target; quote -Ptarget in PowerShell:
 cd minecraft-mod
-.\gradlew.bat clean build
+.\gradlew.bat build '-Ptarget=1.21.11' --no-daemon
 ```
 
-The remapped mod is `minecraft-mod/build/libs/blockmind-minecraft-0.1.0.jar` (not the `-sources` jar).
+Linux: `./gradlew build -Ptarget=1.21.11 --no-daemon`. Default target: 1.21.11. All-target helper accepts repeated `--target VERSION`. It builds serially and writes `build/adapter-build-results.json`. **Do not run different target builds or client tests concurrently in the same checkout**: Loom shares development launch/cache files.
 
-## 3. Install Minecraft dependencies
+Artifact: `minecraft-mod/build/<version>/libs/blockmind-minecraft-mc<version>-0.1.1-dev.jar`. Do not install sources or a jar for another version. Latest 26.3 uses the official unobfuscated-name build file selected automatically by settings.
 
-Create a Minecraft 1.21.11 Fabric profile with Fabric Loader 0.19.5. Put these files in that profile's `mods` folder:
+## Install in a separate game profile
 
-1. Fabric API `0.141.6+1.21.11`.
-2. The built BlockMind jar.
-3. Recommended: official `baritone-api-fabric-1.17.0.jar` from the [Baritone v1.17.0 release](https://github.com/cabaletta/baritone/releases/tag/v1.17.0).
+Create a Fabric profile for the exact chosen Minecraft version, Loader 0.19.5, matching Fabric API, and the matching BlockMind jar. Install the official `baritone-api-fabric-<version>.jar` separately, using the matrix's upstream release. Do not use standalone Baritone artifacts. BlockMind's distributed jar never bundles or downloads Baritone.
 
-Use the API Fabric artifact, not the standalone artifact, because BlockMind calls the public API. BlockMind does not download or bundle Baritone.
+Use a **disposable Creative Overworld**. Flat ground should have its top surface one block below `--origin`. The house/pool footprint is 17 × 21 blocks; allow at least 12 blocks of temporary-access space around it. Stay nearby. This is not approved for valuable worlds or unattended automation.
 
-## 4. Run the live experimental path
-
-Create or open a Creative world. Choose a clear, flat area large enough for the approved bounds (the default house and pool need roughly 21 × 23 blocks plus access space). Treat `--origin X Y Z` as the first build layer: normally one block above flat ground.
-
-Start Core before entering the world:
+Enter the world before starting the build, so metadata includes navigation readiness:
 
 ```powershell
-blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --interactive
 ```
 
-Then enter the Creative world near the origin. The Fabric adapter connects only to `127.0.0.1:8765`, sends structured observations, and executes the plan. Runtime logs and the final report show explicit failures; no failure is silently treated as success.
+Logs show `MODE: LIVE`, Minecraft/adapter/protocol versions, capabilities, failures and verification. There is **no simulation fallback**, teleport navigation or direct structure `setBlock`. Only one Core process may own port 8765. Adapter reconnects to loopback; pending mutations are never automatically replayed.
 
-## Controls
+## Controls and resume
 
-The core API exposes `pause()`, `resume()`, `stop()`, and `emergency_stop()`. STOP is terminal for the queued builder loop. The adapter also accepts `pause`, `resume`, `stop`, and `emergency_stop` control envelopes; emergency stop clears queued actions, cancels navigation, and releases movement keys. A polished in-game/CLI control surface is still planned.
+With `--interactive`, type `status`, `pause`, `resume`, `stop`, or `emergency-stop` in the same terminal. Controls bypass pending navigation. Stop is terminal for this run; emergency stop clears queues, cancels navigation, releases keys and prevents further mutations. Already-sent game packets cannot be undone.
 
-## Known setup caveats
+Additional interactive commands: `perf`, `speed safe`, `speed normal`, `speed fast`, `speed max`, `mute`, `unmute`. They are terminal commands, not Minecraft chat commands. `perf` displays current Core timers without waiting for an extra game request. A profile change takes effect at the next bounded batch/operation boundary.
 
-- This pass compiled the mod and ran automated simulation tests but did not launch a graphical Minecraft session.
-- Without Baritone, navigation requests fail explicitly; placement never falls back to teleporting.
-- Live placement assumes the origin/build volume is clear and reachable. Short vertical scaffold fallback exists, but general access planning does not.
-- The unauthenticated protocol is for loopback only.
-- Some sandboxed Windows desktop runners break Java NIO's internal AF_UNIX selector pipe. That is an execution-environment issue, not a project requirement. A short `TEMP`/`TMP` path (for example `C:\jtmp`) allowed the build here; ordinary terminals generally do not need it.
+Project records/checkpoints are atomic files in `projects/`. Restart after disconnect/stop:
+
+```powershell
+blockmind --resume 'projects\PROJECT-ID.json' --interactive
+```
+
+Resume reads current blocks/properties, rejects a different dimension, marks already-correct work, and performs only missing/wrong work. Automatic clearing is limited to approved targets that were air in a confirmed captured baseline; pre-existing conflicts require explicit user action. Old project files can be loaded, but without `baseline_captured=true` unknown occupied blocks cannot be automatically cleared. Missing blocks can still be rebuilt and correct blocks skipped.
+
+## Developer checks
+
+Each command owns a fresh connection; do not start a second Core alongside an active build. Use interactive controls for active work.
+
+```powershell
+blockmind --command status
+blockmind --command connection
+blockmind --command capabilities
+blockmind --command observe
+blockmind --command navigation-test --target 102 65 100
+blockmind --command goto --target 102 65 100
+blockmind --command cancel-navigation
+blockmind --command place-test --target 103 65 100 --block minecraft:oak_stairs --properties facing=north half=bottom --approve 100 64 98 110 75 110
+blockmind --command break-test --target 103 65 100 --approve 100 64 98 110 75 110
+blockmind --command validate --resume 'projects\PROJECT-ID.json'
+```
+
+Place/break require an explicit region and still enforce real reach/visibility/player collision. Position the player yourself or use navigation-test first. Developer validation is read-only and returns nonzero for an unverified report.
+
+## Disposable live acceptance harness
+
+```powershell
+python scripts/live_acceptance.py --java-home 'C:\path\to\jdk-25' --timeout 3600
+```
+
+This opt-in harness targets **1.21.11 only**, downloads the official matching Baritone artifact after digest verification, creates a disposable Fabric client-test world, sets Creative mode/player starting position as fixture setup, then runs the **real Core over TCP** with one controlled first-placement failure. Every structure block must use player interactions. It writes logs/result/checkpoints to `build/live-test/<UTC timestamp>/` and takes a screenshot only on full success. Test artifacts/dependencies are local and ignored, not distributed with the mod. Graphics/native libraries must be available. Inspect the result: invoking the harness does not imply acceptance passed.
+
+## Performance and audio configuration
+
+`blockmind.toml` is loaded from the current directory; `--config PATH` selects another file. CLI options override the file. Resume preserves the checkpoint's policy unless a config/CLI override was supplied. Defaults are FAST, maximum batch 16, placement radius 3.8, position reuse/local movement enabled, temporary audio mute and restoration enabled.
+
+```powershell
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --speed fast --interactive
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --speed max --max-action-batch 32 --interactive
+# Keep sound unchanged:
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --no-mute-game-audio
+# Explicitly leave Minecraft muted after finish:
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --mute-game-audio --no-restore-audio-after-build
+```
+
+Only Minecraft master volume is changed through game APIs, never Windows/device audio. Prior volume is restored on finish, stop, disconnect and world loss unless restoration was disabled. Pause retains mute while the build session is active. Permanent mute lasts for the current client session; unrelated settings/options files are not edited.
+
+Partial performance checks (not house acceptance):
+
+```powershell
+python scripts/live_acceptance.py --java-home 'C:\path\to\jdk-25' --speed safe --benchmark-blocks 64 --timeout 600
+python scripts/live_acceptance.py --java-home 'C:\path\to\jdk-25' --speed fast --benchmark-blocks 64 --timeout 600
+python scripts/live_acceptance.py --java-home 'C:\path\to\jdk-25' --speed max --benchmark-blocks 64 --timeout 600
+python scripts/live_acceptance.py --java-home 'C:\path\to\jdk-25' --speed fast --benchmark-access --timeout 600
+```
+
+Run serially. The harness uses default batch 16 even in MAX; ordinary CLI can raise it to 32. It saves validation and timing data in `result.json`. Full test omits `--benchmark-blocks`. [Measured results and timer definitions](PERFORMANCE.md).
+
+### Русское резюме настроек
+
+FAST включён по умолчанию. SAFE проверяет каждое действие; NORMAL/FAST/MAX используют ограниченные пакеты только для простых блоков в Creative. Направленные блоки, повторные попытки, временные опоры и разрушение всегда проверяются строго. Итоговый скан обязателен, при расхождениях выполняется ограниченный ремонт. `blockmind.toml` хранит настройки, флаги командной строки их переопределяют. `--no-mute-game-audio` оставляет звук; `--no-restore-audio-after-build` оставляет Minecraft без звука после окончания. Меняется только Master Volume, системный звук не затрагивается. Команды `perf`, `speed ...`, `mute`, `unmute` вводятся в терминале с `--interactive`.
+
+## Limits
+
+- Approved regions, bounded retries, owned scaffold cleanup and fall guards are defense in depth, not an absolute safety guarantee.
+- Access planning is bounded and may fail in obstructed interiors/upper floors. Stateful-block matcher tests do not prove actual placement mechanics.
+- Unloaded chunks abort scans; Core never assumes unknown terrain is safe.
+- The unauthenticated socket accepts loopback IPs only. Remote control requires a separate security design.
+- On some Windows runners Java NIO requires a short existing `TEMP`/`TMP` directory (for example `C:\jtmp`). This is a runner workaround, not a normal installation requirement.

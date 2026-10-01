@@ -8,10 +8,10 @@
 
 ![Status: Early Development](https://img.shields.io/badge/status-early_development-orange)
 ![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
-![Minecraft: 1.21.11](https://img.shields.io/badge/Minecraft-1.21.11-62b47a)
+![Minecraft adapters: 1.20.1–26.3](https://img.shields.io/badge/Minecraft_adapters-1.20.1–26.3-62b47a)
 
 > [!IMPORTANT]
-> BlockMind is **experimental software under active development**. Automated simulation tests pass and the Fabric adapter compiles, but the complete live Minecraft workflow has not yet been verified by a person. There is no stable release and no production-readiness claim.
+> BlockMind is **experimental software under active development**. Automated Core tests pass and six exact Fabric targets build. Real 1.21.11 player construction, navigation, local repair and audio restoration passed a **64-block partial benchmark**; complete house acceptance is **not verified**. There is no stable release or production-readiness claim. See [compatibility](docs/COMPATIBILITY.md), [live evidence](docs/LIVE_TESTING.md) and [measured performance](docs/PERFORMANCE.md).
 
 ## What is BlockMind?
 
@@ -60,10 +60,10 @@ Conceptually, BlockMind should:
 3. expand those components into exact geometry and a material list;
 4. order the work into an executable build plan;
 5. navigate to valid interaction positions and act through the player;
-6. observe every mutation instead of assuming success;
+6. observe and validate results, using adaptive checkpoints for simple Creative batches;
 7. verify the completed structure and plan repairs for mismatches.
 
-Today, the repository implements and tests this flow in an in-memory simulation for one constrained modern-house prompt. The live Minecraft version is awaiting hands-on verification.
+Today, the repository tests this flow in simulation for one constrained modern-house prompt. Live construction has been exercised in Minecraft 1.21.11; full house acceptance remains incomplete.
 
 ## Why BlockMind?
 
@@ -85,12 +85,15 @@ Status labels are deliberately conservative. Code that compiles is not described
 | Core architecture and protocol | **Implemented** | Minecraft-independent Python core, versioned NDJSON protocol, and JSON Schemas. |
 | Deterministic house geometry | **Implemented** | Semantic components expand to exact block operations and material counts. |
 | Build planning and validation | **Implemented** | Plan generation, approved bounds, operation tracking, and block comparison. |
-| In-memory end-to-end simulation | **Tested** | Automated acceptance build verifies 1,310 expected blocks. |
+| In-memory end-to-end simulation | **Tested** | Acceptance verifies 1,402 expected blocks, including door halves and a sealed pool bottom; not a physics simulation. |
 | Pause / resume / stop / emergency stop | **Implemented in code** | Automated stop coverage; live in-game controls still require verification. |
 | Basic hazard and build-region checks | **Implemented in code** | Obvious target hazards and out-of-bounds destructive actions are rejected; no comprehensive safety guarantee. |
-| Fabric adapter | **Compiles** | Minecraft 1.21.11 adapter builds and remaps successfully. |
-| Live Core ↔ Minecraft execution | **Experimental — awaiting live verification** | Transport and actions compile; full graphical-world acceptance run not completed. |
-| Baritone navigation backend | **Experimental — awaiting live verification** | Optional public-API integration compiles; no real route verified yet. |
+| Fabric adapters | **BUILD VERIFIED** | 1.20.1, 1.20.4, 1.20.6, 1.21.1, 1.21.11 and 26.3; separate artifacts, shared logic. [Exact matrix](docs/COMPATIBILITY.md). |
+| Live Core ↔ Minecraft execution | **Partial LIVE verification** | 64/64 actual blocks correct in SAFE, FAST and MAX on 1.21.11; no complete autonomous house verified. |
+| Adaptive Creative execution / audio | **Implemented; partial LIVE test** | FAST default, bounded tick-aware batches, component repair, final scan; master volume 1 → 0 → 1 measured. |
+| Transport, resume and local recovery | **Implemented and tested in isolation** | Negotiation/timeouts/disconnects, atomic checkpoints, world reconciliation, bounded retries/local clearing, temporary ownership. |
+| Stateful placement | **Experimental** | Actual placement-context prediction and property verification exist; matcher tests are not in-game orientation proof. |
+| Baritone navigation backend | **Partial LIVE verification** | Real routes exercised on 1.21.11, with safe local movement fallback; comprehensive route safety unverified. |
 | General natural-language building | **Planned** | Current interpreter recognizes one constrained prompt family. |
 | Natural-language modifications | **Planned** | Semantic component model exists; diff-based rebuilding does not. |
 | Image understanding | **Planned** | Not implemented. |
@@ -98,7 +101,7 @@ Status labels are deliberately conservative. Code that compiles is not described
 | Redstone and technical engineering | **Planned** | No verified component library or simulator yet. |
 | Video reconstruction | **Planned** | Explicitly outside the current milestone. |
 | Survival autonomy | **Planned** | Current MVP target is Creative mode. |
-| General self-debugging and repair | **Planned** | Placement retry exists; diagnosis and localized repair planning do not. |
+| General self-debugging and repair | **Planned** | Bounded local repair exists; general diagnosis/component repair does not. |
 
 ## Architecture
 
@@ -136,7 +139,7 @@ The current design includes:
 - explicit approved build regions for destructive operations;
 - pause, resume, stop, and emergency-stop states;
 - queued-work cancellation and movement-key release on emergency stop;
-- observation after mutating actions;
+- immediate checks for sensitive actions, component checks for simple batches, and authoritative final validation;
 - basic lava, fire, hot-surface, void-level, and unsafe-drop awareness;
 - structured logs for actions, failures, progress, and scaffold cleanup.
 
@@ -149,18 +152,30 @@ These are **developer/experimental instructions**, not a stable release installa
 Requirements for the verified simulation: Python 3.11+.
 
 ```powershell
-git clone <your-blockmind-repository-url>
+git clone https://github.com/BADMAAAN/BlockMind.git
 cd BlockMind
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+python -m pip install -e '.[test]'
 python -m unittest discover -s tests -v
 blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --simulate --origin 0 64 0
 ```
 
 The simulation writes a detailed project record under `projects/` and exits with a non-zero status if validation fails.
 
-The experimental live path additionally requires Java 21, Minecraft Java Edition 1.21.11, Fabric Loader, Fabric API, the built BlockMind adapter, and optionally Baritone. Follow [docs/SETUP.md](docs/SETUP.md) for pinned versions, build commands, installation, and known caveats.
+The experimental live path requires a matching Minecraft/Fabric profile, target adapter, game Java and an available navigation provider. Build tooling uses JDK 25; game Java is 17/21/25 by target. Follow [docs/SETUP.md](docs/SETUP.md) for pinned versions, controls, resume, developer commands and the disposable live harness. Missing navigation fails explicitly; it never falls back to simulation.
+
+## Speed and audio
+
+Live defaults: `--speed fast`, temporary master-volume mute, and automatic restoration. Use SAFE for strict debugging or MAX for larger tick slices; MAX is not guaranteed to be fastest. Directional blocks, scaffolds and destructive actions remain strict in every profile.
+
+```powershell
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --speed fast --interactive
+blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --origin 100 65 100 --speed max --max-action-batch 32 --interactive
+# Add --no-mute-game-audio to keep sound, or --no-restore-audio-after-build to leave it muted.
+```
+
+`blockmind.toml` configures execution, reach/navigation and audio. Interactive controls include `perf`, `speed safe|normal|fast|max`, `mute`, `unmute`. Measured partial benchmark: SAFE **64.75 s**, optimized FAST **31.41 s** (2.06× throughput), MAX **35.97 s**, all 64/64 correct. This is one sample per mode, not full-house performance. [Settings, metrics and limitations](docs/PERFORMANCE.md).
 
 ## Development
 
@@ -181,14 +196,13 @@ Run the Core tests:
 python -m unittest discover -s tests -v
 ```
 
-Build the Fabric adapter with Java 21:
+Build all adapters with JDK 25:
 
 ```powershell
-cd minecraft-mod
-.\gradlew.bat build --no-daemon
+python scripts/build_adapters.py --java-home 'C:\path\to\jdk-25'
 ```
 
-GitHub Actions is configured to run both checks on pushes and pull requests. A workflow badge should be added after the correct GitHub owner/remote is configured and the first workflow run exists; this README does not display an unverified passing badge.
+GitHub Actions runs Core checks and a six-target Fabric build/test matrix on pushes and pull requests. CI compilation is **not runtime verification**. No unverified passing workflow badge is displayed.
 
 ## Roadmap
 

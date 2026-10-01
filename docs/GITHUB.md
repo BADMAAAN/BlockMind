@@ -26,7 +26,7 @@ Apply these settings only to the existing, confirmed BlockMind repository. Do no
 
 ## Workflow badge
 
-The repository includes `.github/workflows/ci.yml`, which runs Core tests and the Fabric build. Add the standard GitHub Actions workflow badge to both READMEs after the correct `owner/BlockMind` remote is known and the first workflow run has produced a real status. Until then, do not display a fabricated passing badge.
+The confirmed repository is [BADMAAAN/BlockMind](https://github.com/BADMAAAN/BlockMind). `.github/workflows/ci.yml` runs Core tests and six Fabric build/test jobs. Add a workflow badge only after a real run has produced a status; do not fabricate a passing badge. CI builds do not prove runtime acceptance.
 
 ## Release policy for the current stage
 
