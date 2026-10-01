@@ -7,3 +7,9 @@ pluginManagement {
 }
 
 rootProject.name = 'blockmind-minecraft-mod'
+
+def target = providers.gradleProperty('target').getOrElse('1.21.11')
+def targets = new groovy.json.JsonSlurper().parse(file('targets.json'))
+if (!targets.containsKey(target)) throw new GradleException("Unknown adapter target: $target; choose ${targets.keySet()}")
+gradle.ext.adapterTarget = targets[target] + [minecraft: target]
+rootProject.buildFileName = targets[target].family == 'official' ? 'build-official.gradle' : 'build.gradle'

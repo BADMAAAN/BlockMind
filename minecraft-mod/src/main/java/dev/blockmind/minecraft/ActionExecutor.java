@@ -1,218 +1,291 @@
 package dev.blockmind.minecraft;
 
-import com.google.gson.JsonObject;
-import net.minecraft.block.BlockState;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
-import net.minecraft.util.hit.BlockHitResult;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.Vec3d;
+import com.google.gson.*;
+import dev.blockmind.minecraft.GameAccess.Pos;
 import dev.blockmind.minecraft.navigation.NavigationProvider;
+import java.util.*;
+import java.util.function.BiConsumer;
 
-import java.util.ArrayDeque;
-import java.util.Queue;
-
+/** All queue consumption, Minecraft access, controls and verification occur on one game thread. */
 final class ActionExecutor {
-    private final MinecraftClient client;
-    private final TcpBridge bridge;
+    private final GameAccess game;
+    private final BiConsumer<String, JsonObject> reply;
     private final NavigationProvider navigation;
     private final Queue<JsonObject> queue = new ArrayDeque<>();
-    private final Queue<JsonObject> controls = new ArrayDeque<>();
+    private final Map<String, JsonObject> completed = new LinkedHashMap<>();
     private Pending pending;
     private boolean paused;
     private boolean stopped;
-
-    private record Pending(String id, String kind, BlockPos target, String expected, long deadline, boolean usedAlternative) {}
-
-    ActionExecutor(MinecraftClient client, TcpBridge bridge, NavigationProvider navigation) {
-        this.client = client;
-        this.bridge = bridge;
-        this.navigation = navigation;
+    private Region approved;
+    private Region temporary;
+    private String dimension;
+    private boolean injectedFailure;
+    private Batch batch;
+    private int perTick = 1;
+    private int maxBatch = 16;
+    private String profile = "fast";
+    private long placementNanos;
+    private long inspectionNanos;
+    private long issued;
+    private static final class Batch {
+        String id; JsonArray operations; JsonArray results = new JsonArray(); int index;
+        Batch(String id, JsonArray operations) { this.id = id; this.operations = operations; }
+    }
+    private record Pending(String id, String kind, Pos target, JsonObject expected, long deadline) {}
+    private record Region(Pos min, Pos max) {
+        Region {
+            if (min.x() > max.x() || min.y() > max.y() || min.z() > max.z()) throw new IllegalArgumentException("inverted region");
+            if ((long) max.x() - min.x() > 1000 || (long) max.y() - min.y() > 1000 || (long) max.z() - min.z() > 1000)
+                throw new IllegalArgumentException("region extent too large");
+        }
+        static Region parse(JsonObject v) { return new Region(Pos.parse(v.getAsJsonObject("minimum")), Pos.parse(v.getAsJsonObject("maximum"))); }
+        boolean contains(Pos p) { return p.x() >= min.x() && p.x() <= max.x() && p.y() >= min.y() && p.y() <= max.y()
+            && p.z() >= min.z() && p.z() <= max.z(); }
+        long size() { return ((long) max.x() - min.x() + 1) * ((long) max.y() - min.y() + 1) * ((long) max.z() - min.z() + 1); }
+    }
+    ActionExecutor(GameAccess game, TcpBridge bridge, NavigationProvider navigation) {
+        this(game, (id, payload) -> bridge.send("action_result", id, payload), navigation);
+    }
+    ActionExecutor(GameAccess game, BiConsumer<String, JsonObject> reply, NavigationProvider navigation) {
+        this.game = game; this.reply = reply; this.navigation = navigation;
     }
 
-    void enqueue(JsonObject envelope) {
-        if (envelope.get("type").getAsString().equals("control")) controls.add(envelope);
-        else if (!stopped) queue.add(envelope);
-        else result(envelope.get("id").getAsString(), false, "executor stopped", null, false);
+    void enqueue(JsonObject value) {
+        String id = value.get("id").getAsString();
+        if (completed.containsKey(id)) { reply.accept(id, completed.get(id)); return; }
+        if ((pending != null && pending.id.equals(id)) || (batch != null && batch.id.equals(id)) || queue.stream().anyMatch(v -> v.get("id").getAsString().equals(id))) return;
+        try {
+            String kind = value.getAsJsonObject("payload").get("kind").getAsString();
+            if (value.get("type").getAsString().equals("control") || kind.equals("cancel_navigation")) {
+                control(id, kind); return;
+            }
+            if (queue.size() >= 64) { result(id, false, "action queue full", null); return; }
+            queue.add(value);
+        } catch (RuntimeException exc) { result(id, false, "invalid request: " + exc.getMessage(), null); }
     }
 
     void tick(long tick) {
-        if (client.player == null || client.world == null || client.interactionManager == null) return;
-        JsonObject controlEnvelope;
-        while ((controlEnvelope = controls.poll()) != null) {
-            String id = controlEnvelope.get("id").getAsString();
-            control(controlEnvelope.getAsJsonObject("payload").get("kind").getAsString());
-            result(id, true, "", null, false);
-        }
-        if (pending != null) {
-            pollPending(tick);
-            if (pending != null) return;
-        }
-        if (paused || stopped) return;
-        JsonObject envelope = queue.poll();
-        if (envelope == null) return;
-        String type = envelope.get("type").getAsString();
-        String id = envelope.get("id").getAsString();
-        JsonObject payload = envelope.getAsJsonObject("payload");
-        execute(id, payload, tick);
+        if (!game.ready()) { abort("world unavailable"); game.finishAudio(); approved = null; return; }
+        if (dimension != null && !dimension.equals(game.dimension())) { abort("dimension changed"); game.finishAudio(); stopped = true; approved = null; }
+        if (pending != null) poll(tick);
+        if (batch != null && !paused && !stopped) { advanceBatch(); return; }
+        if (pending != null || paused) return;
+        JsonObject value = queue.poll();
+        if (value == null) return;
+        String id = value.get("id").getAsString();
+        try { execute(id, value.getAsJsonObject("payload"), tick); }
+        catch (RuntimeException exc) { result(id, false, "invalid action: " + exc.getMessage(), null); }
     }
 
     private void execute(String id, JsonObject action, long tick) {
         String kind = action.get("kind").getAsString();
-        switch (kind) {
-            case "observe_block" -> {
-                BlockPos target = position(action.getAsJsonObject("position"));
-                result(id, true, "", target, false);
-            }
-            case "navigate" -> {
-                BlockPos target = position(action.getAsJsonObject("target"));
-                boolean avoid = !action.has("avoidHazards") || action.get("avoidHazards").getAsBoolean();
-                NavigationProvider.StartResult started = navigation.start(target, avoid);
-                if (!started.accepted()) result(id, false, started.reason(), started.target(), started.usedAlternative());
-                else pending = new Pending(id, kind, started.target(), null, tick + 20L * 120L, started.usedAlternative());
-            }
-            case "cancel_navigation" -> {
-                navigation.cancel();
-                result(id, true, "cancelled", client.player.getBlockPos(), false);
-            }
-            case "place_block" -> startPlace(id, action, tick);
-            case "break_block" -> startBreak(id, action, tick);
-            case "look" -> {
-                client.player.setYaw(action.get("yaw").getAsFloat());
-                client.player.setPitch(action.get("pitch").getAsFloat());
-                result(id, true, "", client.player.getBlockPos(), false);
-            }
-            default -> result(id, false, "unsupported action: " + kind, client.player.getBlockPos(), false);
+        if (kind.equals("performance")) {
+            JsonObject payload = base(true, "metrics"); payload.add("gameTimings", game.performance());
+            payload.add("navigationTimings", navigation.performance());
+            payload.addProperty("placementSeconds", placementNanos / 1e9); payload.addProperty("inspectionSeconds", inspectionNanos / 1e9);
+            payload.addProperty("issuedPlacements", issued); send(id, payload); return;
         }
-    }
-
-    private void startPlace(String id, JsonObject action, long tick) {
-        BlockPos target = position(action.getAsJsonObject("position"));
-        String blockId = action.get("block").getAsString();
-        if (blockAt(target).equals(blockId)) {
-            result(id, true, "already satisfied", target, false);
-            return;
+        if (kind.equals("configure_execution")) {
+            profile = action.get("speed_profile").getAsString();
+            perTick = switch(profile) { case "safe", "normal" -> 1; case "fast" -> 2; case "max" -> 4; default -> throw new IllegalArgumentException("unknown speed profile"); };
+            maxBatch = Math.max(1, Math.min(32, action.get("max_action_batch").getAsInt()));
+            game.configureAudio(action.get("mute_game_audio").getAsBoolean(), action.get("restore_audio_after_build").getAsBoolean());
+            navigation.configureLocal(action.get("prefer_local_movement").getAsBoolean());
+            result(id, true, "execution configured", null); return;
         }
-        int slot = findHotbarItem(blockId);
-        if (slot < 0 && client.player.getAbilities().creativeMode) {
-            slot = provisionCreativeItem(blockId);
-        }
-        if (slot < 0) {
-            result(id, false, "required block not in hotbar", target, false);
-            return;
-        }
-        client.player.getInventory().setSelectedSlot(slot);
-        for (Direction offset : Direction.values()) {
-            BlockPos support = target.offset(offset);
-            if (!client.world.getBlockState(support).isAir()) {
-                Direction face = offset.getOpposite();
-                BlockHitResult hit = new BlockHitResult(Vec3d.ofCenter(support), face, support, false);
-                ActionResult response = client.interactionManager.interactBlock(client.player, Hand.MAIN_HAND, hit);
-                if (response.isAccepted()) {
-                    pending = new Pending(id, "place_block", target, blockId, tick + 20, false);
-                    return;
+        if (kind.equals("finish_project")) { game.finishAudio(); result(id, true, "audio policy applied", null); return; }
+        if (kind.equals("validate_batch")) {
+            JsonArray operations = action.getAsJsonArray("operations");
+            if (operations.size() > 256) throw new IllegalArgumentException("validation batch too large");
+            JsonArray mismatches = new JsonArray(); int correct = 0, missing = 0, incorrect = 0;
+            long start = System.nanoTime();
+            for (JsonElement entry : operations) {
+                JsonObject op = entry.getAsJsonObject(); JsonObject actual = game.inspect(Pos.parse(op.getAsJsonObject("position")));
+                if (matches(actual, op)) correct++;
+                else { JsonObject mismatch = new JsonObject(); mismatch.addProperty("id", op.get("id").getAsString()); mismatch.add("observed", actual); mismatches.add(mismatch);
+                    if (actual.has("block") && actual.get("block").getAsString().equals("minecraft:air")) missing++; else incorrect++;
                 }
             }
+            inspectionNanos += System.nanoTime() - start;
+            JsonObject payload = base(true, "component checkpoint"); payload.addProperty("expected", operations.size());
+            payload.addProperty("correct", correct); payload.addProperty("missing", missing); payload.addProperty("incorrect", incorrect);
+            payload.add("mismatches", mismatches); send(id, payload); return;
         }
-        result(id, false, "no reachable support face; scaffold/reposition required", target, false);
-    }
-
-    private void startBreak(String id, JsonObject action, long tick) {
-        BlockPos target = position(action.getAsJsonObject("position"));
-        if (client.world.getBlockState(target).isAir()) {
-            result(id, true, "already air", target, false);
-            return;
+        if (kind.equals("approve_region")) {
+            if (pending != null || batch != null || !queue.isEmpty()) { result(id, false, "executor busy", null); return; }
+            if (!game.dimension().equals(action.get("dimension").getAsString())) { result(id, false, "dimension mismatch", null); return; }
+            approved = Region.parse(action.getAsJsonObject("region"));
+            temporary = Region.parse(action.getAsJsonObject("temporaryRegion"));
+            if (approved.size() <= 0 || approved.size() > 1_000_000 || temporary.size() <= 0 || temporary.size() > 1_000_000)
+                throw new IllegalArgumentException("invalid region size");
+            dimension = game.dimension(); stopped = false; paused = false;
+            result(id, true, "region approved", null); return;
         }
-        client.interactionManager.attackBlock(target, Direction.UP);
-        pending = new Pending(id, "break_block", target, "minecraft:air", tick + 80, false);
-    }
-
-    private void pollPending(long tick) {
-        if (pending.kind.equals("navigate")) {
-            NavigationProvider.NavigationStatus status = navigation.poll();
-            if (status.state() == NavigationProvider.NavigationStatus.State.RUNNING) return;
-            boolean success = status.state() == NavigationProvider.NavigationStatus.State.SUCCEEDED;
-            result(pending.id, success, status.reason(), status.position(), pending.usedAlternative);
-            pending = null;
-            return;
+        if (kind.equals("observe")) {
+            JsonObject payload = base(true, ""); payload.add("observation", game.observe(6, tick)); send(id, payload); return;
         }
-        if (pending.kind.equals("break_block") && !client.world.getBlockState(pending.target).isAir()) {
-            client.interactionManager.updateBlockBreakingProgress(pending.target, Direction.UP);
-        }
-        if (blockAt(pending.target).equals(pending.expected)) {
-            result(pending.id, true, "verified", pending.target, false);
-            pending = null;
-        } else if (tick >= pending.deadline) {
-            result(pending.id, false, "world did not reach expected state", pending.target, false);
-            pending = null;
-        }
-    }
-
-    void emergencyStop() {
-        queue.clear();
-        pending = null;
-        navigation.cancel();
-        client.options.forwardKey.setPressed(false);
-        client.options.backKey.setPressed(false);
-        client.options.leftKey.setPressed(false);
-        client.options.rightKey.setPressed(false);
-        client.options.jumpKey.setPressed(false);
-        client.options.sneakKey.setPressed(false);
-        client.options.sprintKey.setPressed(false);
-    }
-
-    private void control(String kind) {
-        switch (kind) {
-            case "pause" -> paused = true;
-            case "resume" -> paused = false;
-            case "stop", "emergency_stop" -> {
-                emergencyStop();
-                stopped = true;
+        if (kind.equals("observe_block")) { result(id, true, "observed", Pos.parse(action.getAsJsonObject("position"))); return; }
+        if (kind.equals("observe_positions") || kind.equals("observe_region")) {
+            JsonArray blocks = new JsonArray();
+            if (kind.equals("observe_positions")) {
+                JsonArray points = action.getAsJsonArray("positions");
+                if (points.size() > 4096) throw new IllegalArgumentException("too many positions");
+                for (JsonElement point : points) blocks.add(game.inspect(Pos.parse(point.getAsJsonObject())));
+            } else {
+                Region area = Region.parse(action.getAsJsonObject("region"));
+                if (area.size() <= 0 || area.size() > 4096) throw new IllegalArgumentException("scan must have 1..4096 cells");
+                for (int y = area.min.y(); y <= area.max.y(); y++) for (int z = area.min.z(); z <= area.max.z(); z++)
+                    for (int x = area.min.x(); x <= area.max.x(); x++) blocks.add(game.inspect(new Pos(x, y, z)));
             }
-            default -> { }
+            JsonObject payload = base(true, "observed"); payload.add("blocks", blocks); send(id, payload); return;
+        }
+        if (stopped) { result(id, false, "executor stopped; approve a new/reconciled project", null); return; }
+        switch (kind) {
+            case "action_batch" -> {
+                JsonArray operations = action.getAsJsonArray("operations");
+                if (!game.creative() || profile.equals("safe")) { result(id, false, "batches require Creative non-SAFE mode", null); return; }
+                if (operations.size() < 1 || operations.size() > maxBatch) throw new IllegalArgumentException("invalid batch size");
+                for (JsonElement entry : operations) if (!simple(entry.getAsJsonObject())) throw new IllegalArgumentException("batch contains sensitive operation");
+                batch = new Batch(id, operations); advanceBatch();
+            }
+            case "navigate" -> {
+                Pos target = Pos.parse(action.getAsJsonObject("target"));
+                NavigationProvider.StartResult started = navigation.start(target, true);
+                if (!started.accepted()) result(id, false, started.reason(), target);
+                else pending = new Pending(id, kind, started.target(), null, tick + 2400);
+            }
+            case "look" -> { game.look(action.get("yaw").getAsFloat(), action.get("pitch").getAsFloat()); result(id, true, "looked", null); }
+            case "select_hotbar" -> result(id, game.select(action.get("slot").getAsInt()), "inventory selection", null);
+            case "provision" -> result(id, game.provision(action.get("item").getAsString()), "Creative provisioning", null);
+            case "place_block", "break_block", "interact" -> {
+                Pos target = Pos.parse(action.getAsJsonObject("position"));
+                boolean temp = action.has("temporary") && action.get("temporary").getAsBoolean();
+                Region area = temp ? temporary : approved;
+                if (area == null || !area.contains(target)) { result(id, false, "action outside approved region", target); return; }
+                JsonObject expected = new JsonObject();
+                String reason;
+                if (kind.equals("place_block")) {
+                    if (Boolean.getBoolean("blockmind.test.failFirstPlacement") && !injectedFailure) {
+                        injectedFailure = true; result(id, false, "controlled development placement failure", target); return;
+                    }
+                    expected.addProperty("block", action.get("block").getAsString());
+                    expected.add("properties", action.has("properties") ? action.getAsJsonObject("properties") : new JsonObject());
+                    if (matches(game.inspect(target), expected)) { result(id, true, "already satisfied", target); return; }
+                    long start = System.nanoTime();
+                    reason = game.place(target, action.get("block").getAsString(), expected.getAsJsonObject("properties"));
+                    placementNanos += System.nanoTime() - start;
+                    if (reason.isEmpty()) issued++;
+                } else if (kind.equals("break_block")) {
+                    expected.addProperty("block", "minecraft:air"); expected.add("properties", new JsonObject());
+                    reason = game.breakBlock(target);
+                } else {
+                    if (!action.has("expected")) { result(id, false, "interact requires expected block state for verification", target); return; }
+                    expected = action.getAsJsonObject("expected"); reason = game.interact(target);
+                }
+                if (!reason.isEmpty()) result(id, false, reason, target);
+                else pending = new Pending(id, kind, target, expected, tick + 80);
+            }
+            default -> result(id, false, "unsupported action: " + kind, null);
         }
     }
 
-    private int findHotbarItem(String blockId) {
-        String itemId = blockId.equals("minecraft:water") ? "minecraft:water_bucket" : blockId;
-        for (int slot = 0; slot < 9; slot++) {
-            ItemStack stack = client.player.getInventory().getStack(slot);
-            if (Registries.ITEM.getId(stack.getItem()).toString().equals(itemId)) return slot;
+    private void poll(long tick) {
+        Pending work = pending;
+        if (tick >= work.deadline) { abort("action timed out; observed state did not match"); return; }
+        if (work.kind.equals("navigate")) {
+            NavigationProvider.NavigationStatus status = navigation.poll();
+            if (status.state() != NavigationProvider.NavigationStatus.State.RUNNING) {
+                pending = null;
+                result(work.id, status.state() == NavigationProvider.NavigationStatus.State.SUCCEEDED, status.reason(), null);
+            }
+        } else if (matches(game.inspect(work.target), work.expected)) {
+            pending = null; result(work.id, true, "observed and verified", work.target);
+        } else if (work.kind.equals("break_block")) {
+            String reason = game.breakBlock(work.target);
+            if (!reason.isEmpty()) { pending = null; result(work.id, false, reason, work.target); }
         }
-        return -1;
     }
 
-    private int provisionCreativeItem(String blockId) {
-        String itemId = blockId.equals("minecraft:water") ? "minecraft:water_bucket" : blockId;
-        ItemStack stack = Registries.ITEM.get(Identifier.of(itemId)).getDefaultStack();
-        if (stack.isEmpty()) return -1;
-        int slot = client.player.getInventory().getSelectedSlot();
-        client.interactionManager.clickCreativeStack(stack, 36 + slot);
-        return slot;
+    static boolean matches(JsonObject actual, JsonObject expected) {
+        if (!actual.has("loaded") || !actual.get("loaded").getAsBoolean() || !actual.get("block").equals(expected.get("block"))) return false;
+        JsonObject properties = expected.getAsJsonObject("properties");
+        if (properties == null) return true;
+        for (var entry : properties.entrySet()) if (!entry.getValue().equals(actual.getAsJsonObject("properties").get(entry.getKey()))) return false;
+        return true;
     }
 
-    private String blockAt(BlockPos position) {
-        BlockState state = client.world.getBlockState(position);
-        return Registries.BLOCK.getId(state.getBlock()).toString();
+    private void control(String id, String kind) {
+        switch (kind) {
+            case "pause" -> { paused = true; abort("paused"); }
+            case "resume" -> {
+                if (stopped) { result(id, false, "stop is terminal; approve a new/reconciled project", null); return; }
+                paused = false;
+            }
+            case "stop", "emergency_stop" -> { stopped = true; paused = false; abort(kind); game.finishAudio(); }
+            case "cancel_navigation" -> abort("navigation cancelled");
+            default -> { result(id, false, "unknown control: " + kind, null); return; }
+        }
+        result(id, true, kind, null);
     }
 
-    private void result(String id, boolean success, String reason, BlockPos observed, boolean alternative) {
-        JsonObject payload = new JsonObject();
-        payload.addProperty("success", success);
-        payload.addProperty("reason", reason);
-        payload.addProperty("usedAlternative", alternative);
-        BlockPos position = observed == null ? client.player.getBlockPos() : observed;
-        payload.add("position", ObservationCollector.position(position));
-        if (observed != null) payload.addProperty("observedBlock", blockAt(observed));
-        bridge.send("action_result", id, payload);
+    private void abort(String reason) {
+        navigation.cancel(); game.releaseMovement();
+        if (batch != null) { Batch work = batch; batch = null; JsonObject payload = base(false, reason); payload.add("results", work.results); send(work.id, payload); }
+        if (pending != null) { Pending work = pending; pending = null; result(work.id, false, reason, work.target); }
+        JsonObject value;
+        while ((value = queue.poll()) != null) result(value.get("id").getAsString(), false, reason, null);
+    }
+    void disconnect() { abort("connection lost"); game.finishAudio(); stopped = true; approved = null; temporary = null; completed.clear(); }
+    void newSession() { disconnect(); stopped = false; paused = false; }
+
+    private JsonObject base(boolean success, String reason) {
+        JsonObject value = new JsonObject(); value.addProperty("success", success); value.addProperty("reason", reason);
+        value.add("position", game.playerPosition().json()); return value;
+    }
+    private void result(String id, boolean success, String reason, Pos target) {
+        JsonObject payload = base(success, reason);
+        if (target != null && game.ready()) {
+            JsonObject block = game.inspect(target); payload.add("observed", block);
+            payload.addProperty("loaded", block.get("loaded").getAsBoolean());
+            if (block.has("block")) { payload.add("observedBlock", block.get("block")); payload.add("properties", block.get("properties")); }
+            if (!block.get("loaded").getAsBoolean()) { payload.addProperty("success", false); payload.addProperty("reason", "target chunk unloaded"); }
+        }
+        send(id, payload);
+    }
+    private void send(String id, JsonObject payload) {
+        completed.put(id, payload);
+        if (completed.size() > 256) completed.remove(completed.keySet().iterator().next());
+        reply.accept(id, payload);
     }
 
-    private static BlockPos position(JsonObject value) {
-        return new BlockPos(value.get("x").getAsInt(), value.get("y").getAsInt(), value.get("z").getAsInt());
+    private static boolean simple(JsonObject op) {
+        if (op.has("properties") && op.getAsJsonObject("properties").size() > 0) return false;
+        if (op.has("temporary") && op.get("temporary").getAsBoolean()) return false;
+        String block = op.get("block").getAsString().replace("minecraft:", "");
+        return Set.of("stone", "cobblestone", "smooth_quartz", "quartz_block", "bricks", "dirt", "glass").contains(block)
+            || block.endsWith("_planks") || block.endsWith("_concrete") || block.endsWith("_wool");
+    }
+    private void advanceBatch() {
+        Batch work = batch;
+        for (int count = 0; count < perTick && work.index < work.operations.size(); count++) {
+            JsonObject op = work.operations.get(work.index++).getAsJsonObject();
+            Pos point = Pos.parse(op.getAsJsonObject("position"));
+            JsonObject outcome = new JsonObject(); outcome.add("id", op.get("id"));
+            String reason = approved == null || !approved.contains(point) ? "outside approved region" : "";
+            if (reason.isEmpty() && Boolean.getBoolean("blockmind.test.failFirstPlacement") && !injectedFailure) {
+                injectedFailure = true; reason = "controlled development placement failure";
+            }
+            if (reason.isEmpty()) {
+                long start = System.nanoTime();
+                if (!matches(game.inspect(point), op)) reason = game.place(point, op.get("block").getAsString(), new JsonObject());
+                placementNanos += System.nanoTime() - start;
+            }
+            outcome.addProperty("issued", reason.isEmpty()); outcome.addProperty("reason", reason);
+            if (reason.isEmpty()) issued++;
+            work.results.add(outcome);
+        }
+        if (work.index == work.operations.size()) {
+            batch = null; JsonObject payload = base(true, "issued; component validation required"); payload.add("results", work.results); send(work.id, payload);
+        }
     }
 }

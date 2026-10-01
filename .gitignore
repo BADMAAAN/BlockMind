@@ -66,6 +66,7 @@ authlib-injector.log
 
 # Generated BlockMind data
 projects/*.json
+projects/*.tmp
 !projects/.gitkeep
 test-results/
 tmp/

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BlockMind priority control",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {"kind": {"enum": ["pause", "resume", "stop", "emergency_stop", "cancel_navigation"]}}
+}

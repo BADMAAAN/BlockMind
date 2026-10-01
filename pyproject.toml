@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blockmind-core"
-version = "0.1.0"
+version = "0.1.1.dev0"
 description = "Independent planning, building, and validation runtime for autonomous Minecraft agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [{name = "BlockMind contributors"}]
 dependencies = []
+
+[project.optional-dependencies]
+test = ["jsonschema>=4,<5"]
 
 [project.scripts]
 blockmind = "blockmind.cli:main"

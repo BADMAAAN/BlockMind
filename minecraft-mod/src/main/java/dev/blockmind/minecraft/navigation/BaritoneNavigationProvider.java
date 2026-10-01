@@ -1,107 +1,106 @@
 package dev.blockmind.minecraft.navigation;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.BlockPos;
+import dev.blockmind.minecraft.GameAccess;
+import dev.blockmind.minecraft.GameAccess.Pos;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
-
-/**
- * Optional LGPL Baritone integration through its public API, loaded reflectively.
- * BlockMind does not bundle Baritone; users install the official API Fabric jar separately.
- */
+/** Uses only public baritone.api; no Baritone binary or sources are bundled. */
 public final class BaritoneNavigationProvider implements NavigationProvider {
-    private final MinecraftClient client;
-    private Object baritone;
+    private final GameAccess game;
     private Object goalProcess;
-    private Object pathingBehavior;
-    private String error;
-    private boolean started;
-    private boolean cancelled;
-    private BlockPos target;
-
-    public BaritoneNavigationProvider(MinecraftClient client) {
-        this.client = client;
-        discover();
+    private Object pathing;
+    private String error = "Baritone public API unavailable";
+    private boolean running;
+    private Pos target;
+    private int grace;
+    private long activeStart, activeNanos, startNanos;
+    private int goals;
+    @Override public com.google.gson.JsonObject performance() {
+        var value = new com.google.gson.JsonObject(); value.addProperty("baritoneGoals", goals);
+        value.addProperty("baritoneStartSeconds", startNanos / 1e9);
+        value.addProperty("baritoneActiveSeconds", (activeNanos + (running ? System.nanoTime()-activeStart : 0)) / 1e9); return value;
     }
+    private final Map<Object, Object> previousSettings = new LinkedHashMap<>();
 
-    private void discover() {
+    public BaritoneNavigationProvider(GameAccess game) { this.game = game; }
+
+    private boolean discover() {
+        if (goalProcess != null && pathing != null) return true;
         try {
             Class<?> api = Class.forName("baritone.api.BaritoneAPI");
             Object provider = api.getMethod("getProvider").invoke(null);
-            baritone = Class.forName("baritone.api.IBaritoneProvider")
-                    .getMethod("getPrimaryBaritone").invoke(provider);
-            goalProcess = Class.forName("baritone.api.IBaritone")
-                    .getMethod("getCustomGoalProcess").invoke(baritone);
-            pathingBehavior = Class.forName("baritone.api.IBaritone")
-                    .getMethod("getPathingBehavior").invoke(baritone);
-        } catch (ReflectiveOperationException exception) {
-            error = "Baritone API Fabric mod not installed or incompatible: " + exception.getClass().getSimpleName();
+            Object baritone = Class.forName("baritone.api.IBaritoneProvider").getMethod("getPrimaryBaritone").invoke(provider);
+            Class<?> type = Class.forName("baritone.api.IBaritone");
+            goalProcess = type.getMethod("getCustomGoalProcess").invoke(baritone);
+            pathing = type.getMethod("getPathingBehavior").invoke(baritone);
+            return true;
+        } catch (ReflectiveOperationException | LinkageError exc) {
+            error = "Baritone API unavailable: " + exc.getClass().getSimpleName();
+            goalProcess = null; pathing = null;
+            return false;
         }
     }
 
-    @Override
-    public StartResult start(BlockPos target, boolean avoidHazards) {
-        if (!available()) return new StartResult(false, target, error, false);
+    @Override public boolean available() { return discover(); }
+
+    @Override public StartResult start(Pos target, boolean avoidHazards) {
+        if (!discover()) return new StartResult(false, target, error, false);
+        cancel();
+        long start=System.nanoTime();
         try {
-            Class<?> goalClass = Class.forName("baritone.api.pathing.goals.GoalBlock");
-            Constructor<?> constructor = goalClass.getConstructor(int.class, int.class, int.class);
-            Object goal = constructor.newInstance(target.getX(), target.getY(), target.getZ());
-            Method setter = findSingleArgumentMethod(Class.forName("baritone.api.process.ICustomGoalProcess"), "setGoalAndPath");
-            setter.invoke(goalProcess, goal);
-            started = true;
-            cancelled = false;
-            this.target = target;
+            // Avoid collateral pathfinding edits and dangerous shortcut policies.
+            Object settings = Class.forName("baritone.api.BaritoneAPI").getMethod("getSettings").invoke(null);
+            set(settings, "allowBreak", false); set(settings, "allowPlace", false);
+            set(settings, "allowParkour", false); set(settings, "allowSprint", false);
+            set(settings, "maxFallHeightNoWater", 3);
+            Object goal = Class.forName("baritone.api.pathing.goals.GoalBlock")
+                .getConstructor(int.class, int.class, int.class).newInstance(target.x(), target.y(), target.z());
+            Class.forName("baritone.api.process.ICustomGoalProcess")
+                .getMethod("setGoalAndPath", Class.forName("baritone.api.pathing.goals.Goal")).invoke(goalProcess, goal);
+            this.target = target; running = true; grace = 10;
+            goals++; activeStart=System.nanoTime(); startNanos+=activeStart-start;
             return new StartResult(true, target, "", false);
-        } catch (ReflectiveOperationException exception) {
-            error = "Baritone invocation failed: " + exception.getClass().getSimpleName();
-            return new StartResult(false, target, error, false);
+        } catch (ReflectiveOperationException | LinkageError exc) {
+            cancel();
+            return new StartResult(false, target, "Baritone invocation failed: " + exc.getClass().getSimpleName(), false);
         }
     }
 
-    private static Method findSingleArgumentMethod(Class<?> type, String name) throws NoSuchMethodException {
-        for (Method method : type.getMethods()) {
-            if (method.getName().equals(name) && method.getParameterCount() == 1) return method;
-        }
-        throw new NoSuchMethodException(name);
+    private void set(Object settings, String key, Object value) throws ReflectiveOperationException {
+        Object setting = settings.getClass().getField(key).get(settings);
+        previousSettings.putIfAbsent(setting, setting.getClass().getField("value").get(setting));
+        setting.getClass().getField("value").set(setting, value);
     }
 
-    @Override
-    public NavigationStatus poll() {
-        BlockPos position = client.player == null ? BlockPos.ORIGIN : client.player.getBlockPos();
-        if (cancelled) return new NavigationStatus(NavigationStatus.State.CANCELLED, position, "cancelled");
-        if (!started) return new NavigationStatus(NavigationStatus.State.IDLE, position, error == null ? "" : error);
+    @Override public NavigationStatus poll() {
+        Pos position = game.playerPosition();
+        if (!running) return new NavigationStatus(NavigationStatus.State.CANCELLED, position, "cancelled");
+        if (position.equals(target)) { cancel(); return new NavigationStatus(NavigationStatus.State.SUCCEEDED, position, "arrived"); }
         try {
-            boolean pathing = (boolean) Class.forName("baritone.api.behavior.IPathingBehavior")
-                    .getMethod("isPathing").invoke(pathingBehavior);
-            boolean active = (boolean) Class.forName("baritone.api.process.IBaritoneProcess")
-                    .getMethod("isActive").invoke(goalProcess);
-            if (pathing || active) return new NavigationStatus(NavigationStatus.State.RUNNING, position, "");
-            started = false;
-            if (target != null && position.equals(target)) {
-                return new NavigationStatus(NavigationStatus.State.SUCCEEDED, position, "");
-            }
+            boolean active = (boolean) Class.forName("baritone.api.process.IBaritoneProcess").getMethod("isActive").invoke(goalProcess);
+            boolean moving = (boolean) Class.forName("baritone.api.behavior.IPathingBehavior").getMethod("isPathing").invoke(pathing);
+            if (active || moving || grace-- > 0) return new NavigationStatus(NavigationStatus.State.RUNNING, position, "");
+            cancel();
             return new NavigationStatus(NavigationStatus.State.FAILED, position, "Baritone stopped before reaching target");
-        } catch (ReflectiveOperationException exception) {
-            return new NavigationStatus(NavigationStatus.State.FAILED, position, exception.getClass().getSimpleName());
+        } catch (ReflectiveOperationException exc) {
+            cancel();
+            return new NavigationStatus(NavigationStatus.State.FAILED, position, exc.getClass().getSimpleName());
         }
     }
 
-    @Override
-    public void cancel() {
-        cancelled = true;
-        started = false;
-        if (baritone == null) return;
-        try {
-            Class.forName("baritone.api.behavior.IPathingBehavior")
-                    .getMethod("cancelEverything").invoke(pathingBehavior);
-        } catch (ReflectiveOperationException ignored) {
-            // A disconnected or changing upstream API is reported through the next status poll.
+    @Override public void cancel() {
+        if (running) activeNanos+=System.nanoTime()-activeStart;
+        running = false;
+        if (pathing != null) {
+            try { Class.forName("baritone.api.behavior.IPathingBehavior").getMethod("cancelEverything").invoke(pathing); }
+            catch (ReflectiveOperationException ignored) { }
         }
-    }
-
-    @Override
-    public boolean available() {
-        return baritone != null;
+        for (var entry : previousSettings.entrySet()) {
+            try { entry.getKey().getClass().getField("value").set(entry.getKey(), entry.getValue()); }
+            catch (ReflectiveOperationException ignored) { }
+        }
+        previousSettings.clear();
+        game.releaseMovement();
     }
 }

@@ -49,8 +49,8 @@ class SafeSimulatedNavigationProvider(NavigationProvider):
         self.cancelled = False
 
     async def navigate(self, goal: NavigationGoal, world: WorldState) -> NavigationResult:
-        if self.cancelled:
-            return NavigationResult(False, world.player.position, "navigation cancelled")
+        # Cancellation ends current work, not all future goals after an explicit resume.
+        self.cancelled = False
         target = goal.target
         if goal.avoid_hazards and world.is_hazardous(target):
             alternatives = [target.offset(dx=dx, dz=dz) for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (0, 2))]

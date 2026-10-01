@@ -23,11 +23,24 @@ class SimulatedMinecraftPort(MinecraftPort):
         if operation.block is None:
             return False
         self.world.blocks[operation.position] = operation.block
+        self.world.properties[operation.position] = operation.properties.copy()
+        if operation.block.endswith("_door") and operation.properties.get("half") == "lower":
+            upper = operation.position.offset(dy=1)
+            self.world.blocks[upper] = operation.block
+            self.world.properties[upper] = operation.properties | {"half": "upper"}
         return True
 
     async def break_block(self, operation: BuildOperation) -> bool:
         self.world.blocks.pop(operation.position, None)
+        self.world.properties.pop(operation.position, None)
         return True
 
     async def block_at(self, position: Vec3i) -> str:
         return self.world.block_at(position)
+
+    async def inspect_block(self, position: Vec3i) -> tuple[str, dict[str, str]]:
+        return self.world.block_at(position), self.world.properties.get(position, {})
+
+    async def scan_region(self, bounds):
+        return {position: (block, self.world.properties.get(position, {}))
+                for position, block in self.world.blocks.items() if bounds.contains(position)}

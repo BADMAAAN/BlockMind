@@ -69,6 +69,7 @@ class PlayerState:
     on_ground: bool = True
     velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
     inventory: dict[str, int] = field(default_factory=dict)
+    eye: tuple[float, float, float] | None = None
 
 
 @dataclass
@@ -77,6 +78,9 @@ class WorldState:
     blocks: dict[Vec3i, str] = field(default_factory=dict)
     hazards: list[Hazard] = field(default_factory=list)
     observed_bounds: Bounds | None = None
+    properties: dict[Vec3i, dict[str, str]] = field(default_factory=dict)
+    replaceable: set[Vec3i] = field(default_factory=set)
+    solid: set[Vec3i] = field(default_factory=set)
 
     def block_at(self, position: Vec3i) -> str:
         return self.blocks.get(position, "minecraft:air")
@@ -121,6 +125,9 @@ class BuildOperation:
     status: OperationStatus = OperationStatus.PENDING
     attempts: int = 0
     error: str | None = None
+    properties: dict[str, str] = field(default_factory=dict)
+    verify_only: bool = False
+    depends_on: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -138,6 +145,7 @@ class BuildPlan:
     operations: list[BuildOperation]
     materials: dict[str, int]
     approved_area: Bounds
+    temporary_area: Bounds | None = None
 
 
 class ProjectStatus(str, Enum):
@@ -161,6 +169,12 @@ class ProjectState:
     failures: list[dict[str, Any]] = field(default_factory=list)
     modifications: list[str] = field(default_factory=list)
     validation: dict[str, Any] = field(default_factory=dict)
+    temporary_blocks: list[dict[str, Any]] = field(default_factory=list)
+    dimension: str | None = None
+    baseline: list[dict[str, Any]] = field(default_factory=list)
+    baseline_captured: bool = False
+    execution: dict[str, Any] = field(default_factory=dict)
+    performance: dict[str, Any] = field(default_factory=dict)
 
     @property
     def progress(self) -> float:

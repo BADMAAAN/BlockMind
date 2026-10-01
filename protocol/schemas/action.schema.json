@@ -5,15 +5,40 @@
   "type": "object",
   "required": ["kind"],
   "properties": {
-    "kind": {"enum": ["navigate", "cancel_navigation", "look", "set_input", "select_hotbar", "place_block", "break_block", "use_item", "interact", "observe_block"]},
+    "kind": {"enum": ["approve_region", "navigate", "cancel_navigation", "look", "select_hotbar", "provision", "place_block", "break_block", "interact", "observe", "observe_block", "observe_positions", "observe_region", "action_batch", "validate_batch", "configure_execution", "finish_project", "performance", "ping"]},
+    "operations": {"type": "array", "maxItems": 256, "items": {"type": "object", "required": ["id", "position", "block"], "properties": {"id": {"type": "string"}, "position": {"$ref": "#/$defs/position"}, "block": {"type": "string"}, "properties": {"type": "object", "additionalProperties": {"type": "string"}}}}},
+    "speed_profile": {"enum": ["safe", "normal", "fast", "max"]},
+    "max_action_batch": {"type": "integer", "minimum": 1, "maximum": 32},
+    "mute_game_audio": {"type": "boolean"},
+    "restore_audio_after_build": {"type": "boolean"},
+    "prefer_local_movement": {"type": "boolean"},
     "position": {"$ref": "#/$defs/position"},
     "target": {"$ref": "#/$defs/position"},
     "block": {"type": "string"},
+    "item": {"type": "string"},
+    "slot": {"type": "integer", "minimum": 0, "maximum": 8},
+    "yaw": {"type": "number"},
+    "pitch": {"type": "number", "minimum": -90, "maximum": 90},
+    "properties": {"type": "object", "additionalProperties": {"type": "string"}},
+    "temporary": {"type": "boolean"},
+    "positions": {"type": "array", "maxItems": 4096, "items": {"$ref": "#/$defs/position"}},
+    "region": {"$ref": "#/$defs/region"},
+    "temporaryRegion": {"$ref": "#/$defs/region"},
+    "dimension": {"type": "string"},
+    "expected": {"type": "object", "required": ["block"], "properties": {"block": {"type": "string"}, "properties": {"type": "object", "additionalProperties": {"type": "string"}}}},
     "goal": {"enum": ["go_to", "approach", "move_to_build_position", "follow", "explore", "return_to"]},
     "tolerance": {"type": "number", "minimum": 0},
     "avoidHazards": {"type": "boolean"}
   },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "action_batch"}}}, "then": {"required": ["operations"], "properties": {"operations": {"minItems": 1, "maxItems": 32}}}},
+    {"if": {"properties": {"kind": {"const": "validate_batch"}}}, "then": {"required": ["operations"]}},
+    {"if": {"properties": {"kind": {"const": "configure_execution"}}}, "then": {"required": ["speed_profile", "max_action_batch", "mute_game_audio", "restore_audio_after_build", "prefer_local_movement"]}}
+  ],
   "$defs": {
+    "region": {"type": "object", "required": ["minimum", "maximum"], "properties": {
+      "minimum": {"$ref": "#/$defs/position"}, "maximum": {"$ref": "#/$defs/position"}
+    }},
     "position": {
       "type": "object",
       "required": ["x", "y", "z"],

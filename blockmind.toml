@@ -1,0 +1,14 @@
+[execution]
+speed_profile = "fast"
+adaptive_verification = true
+component_validation = true
+max_action_batch = 16
+placement_radius = 3.8
+
+[navigation]
+reuse_interaction_positions = true
+prefer_local_movement = true
+
+[audio]
+mute_game_audio = true
+restore_audio_after_build = true

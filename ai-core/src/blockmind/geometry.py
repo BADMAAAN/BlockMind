@@ -47,7 +47,7 @@ class ModernHouseGeometry:
             for z in range(depth):
                 put(origin.offset(x, roof_y, z), accent, "roof")
 
-        # Door is represented as lower/upper states by the adapter when available; MVP places lower item once.
+        # A door item creates two world blocks. Count and verify both, place only the lower half.
         put(origin.offset(door_x, 2, 0), "minecraft:dark_oak_door", "entrance")
 
         if p["pool"]:
@@ -56,9 +56,15 @@ class ModernHouseGeometry:
             for x in range(x0 - 1, x1 + 2):
                 for z in range(z0 - 1, z1 + 2):
                     border = x in (x0 - 1, x1 + 1) or z in (z0 - 1, z1 + 1)
-                    put(origin.offset(x, 0, z), "minecraft:smooth_quartz" if border else "minecraft:water", "pool")
+                    put(origin.offset(x, 0, z), "minecraft:smooth_quartz", "pool")
+                    put(origin.offset(x, 1, z), "minecraft:smooth_quartz" if border else "minecraft:water", "pool")
 
         operations = [BuildOperation(OperationKind.PLACE, pos, block, component)
-                      for pos, (block, component) in sorted(desired.items(), key=lambda item: (item[0].y, item[0].z, item[0].x))]
-        materials = dict(Counter(op.block for op in operations if op.block and op.block != "minecraft:air"))
-        return BuildPlan(design, operations, materials, design.bounds.expanded(2))
+                      for pos, (block, component) in sorted(desired.items(), key=lambda item: (
+                          item[1][0] == "minecraft:water", item[0].y, item[0].z, item[0].x))]
+        door = next(op for op in operations if op.component_id == "entrance")
+        door.properties = {"half": "lower", "facing": "north", "open": "false"}
+        operations.append(BuildOperation(OperationKind.PLACE, door.position.offset(dy=1), door.block, "entrance",
+            properties={"half": "upper", "facing": "north", "open": "false"}, verify_only=True, depends_on=[door.id]))
+        materials = dict(Counter(op.block for op in operations if op.block and op.block != "minecraft:air" and not op.verify_only))
+        return BuildPlan(design, operations, materials, design.bounds.expanded(2), design.bounds.expanded(12))

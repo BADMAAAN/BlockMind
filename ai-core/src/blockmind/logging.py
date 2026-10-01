@@ -15,7 +15,8 @@ class JsonFormatter(logging.Formatter):
             "source": record.name,
             "message": record.getMessage(),
         }
-        for key in ("category", "operation_id", "component_id", "position", "blocks", "progress"):
+        for key in ("category", "operation_id", "component_id", "position", "blocks", "progress",
+                    "mode", "minecraft", "adapter", "protocol", "reason", "strategy", "capabilities", "target"):
             if hasattr(record, key):
                 event[key] = getattr(record, key)
         return json.dumps(event, separators=(",", ":"), default=str)

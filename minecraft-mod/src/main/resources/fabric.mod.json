@@ -5,7 +5,7 @@
   "name": "BlockMind Minecraft Adapter",
   "description": "Embodied Minecraft sensors and actions for BlockMind Core",
   "authors": ["BlockMind contributors"],
-  "contact": {"sources": "https://github.com/blockmind-ai/blockmind"},
+  "contact": {"sources": "https://github.com/BADMAAAN/BlockMind"},
   "license": "Apache-2.0",
   "environment": "client",
   "entrypoints": {
@@ -13,11 +13,11 @@
   },
   "depends": {
     "fabricloader": ">=0.19.5",
-    "minecraft": "~1.21.11",
-    "java": ">=21",
+    "minecraft": "=${minecraft}",
+    "java": ">=${java}",
     "fabric-api": "*"
   },
   "suggests": {
-    "baritone": ">=1.17.0"
+    "baritone": "*"
   }
 }

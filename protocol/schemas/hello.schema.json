@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BlockMind adapter handshake payload",
+  "type": "object",
+  "required": ["minecraft", "adapterVersion", "protocol", "capabilities", "navigation"],
+  "properties": {
+    "minecraft": {"type": "string", "minLength": 1},
+    "adapterVersion": {"type": "string", "minLength": 1},
+    "protocol": {"const": "0.1.0"},
+    "capabilities": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "navigation": {"type": "object", "required": ["available"], "properties": {
+      "provider": {"type": "string"}, "available": {"type": "boolean"}
+    }}
+  }
+}

@@ -6,8 +6,8 @@
   "required": ["protocol", "id", "type", "payload"],
   "properties": {
     "protocol": {"const": "0.1.0"},
-    "id": {"type": "string", "minLength": 1},
-    "type": {"enum": ["hello", "observation", "action", "action_result", "event", "control"]},
+    "id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "type": {"enum": ["hello", "hello_ack", "observation", "action", "action_result", "event", "control", "error"]},
     "payload": {"type": "object"}
   },
   "additionalProperties": false

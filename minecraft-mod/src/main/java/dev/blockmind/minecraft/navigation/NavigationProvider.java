@@ -1,16 +1,17 @@
 package dev.blockmind.minecraft.navigation;
 
-import net.minecraft.util.math.BlockPos;
+import dev.blockmind.minecraft.GameAccess.Pos;
 
-/** Stable adapter boundary: Core goals do not expose Baritone implementation types. */
+/** Core goals never expose Minecraft mappings or Baritone types. */
 public interface NavigationProvider {
-    StartResult start(BlockPos target, boolean avoidHazards);
+    StartResult start(Pos target, boolean avoidHazards);
     NavigationStatus poll();
     void cancel();
     boolean available();
-
-    record StartResult(boolean accepted, BlockPos target, String reason, boolean usedAlternative) {}
-    record NavigationStatus(State state, BlockPos position, String reason) {
+    default void configureLocal(boolean enabled) { }
+    default com.google.gson.JsonObject performance() { return new com.google.gson.JsonObject(); }
+    record StartResult(boolean accepted, Pos target, String reason, boolean usedAlternative) {}
+    record NavigationStatus(State state, Pos position, String reason) {
         public enum State { IDLE, RUNNING, SUCCEEDED, FAILED, CANCELLED }
     }
 }

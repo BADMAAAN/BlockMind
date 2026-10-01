@@ -5,9 +5,12 @@ plugins {
 
 version = project.mod_version
 group = project.maven_group
+def target = gradle.ext.adapterTarget
+layout.buildDirectory = file("build/${target.minecraft}")
+sourceSets.main.java.srcDirs = ['src/main/java', 'src/yarn/java', "src/${target.family}/java"]
 
 base {
-    archivesName = project.archives_base_name
+    archivesName = "${project.archives_base_name}-mc${target.minecraft}"
 }
 
 repositories {
@@ -15,28 +18,56 @@ repositories {
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    minecraft "com.mojang:minecraft:${target.minecraft}"
+    mappings "net.fabricmc:yarn:${target.yarn}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+    if (providers.gradleProperty('baritoneJar').isPresent()) {
+        modLocalRuntime files(providers.gradleProperty('baritoneJar').get())
+    }
+    if (providers.gradleProperty('baritoneDependencies').isPresent()) {
+        runtimeOnly fileTree(providers.gradleProperty('baritoneDependencies').get()) { include '*.jar' }
+    }
 }
 
 def expandedVersion = version
 processResources {
     inputs.property "version", expandedVersion
     filesMatching("fabric.mod.json") {
-        expand "version": expandedVersion
+        expand version: expandedVersion, minecraft: target.minecraft, java: target.java
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = target.java
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.toVersion(target.java)
+    targetCompatibility = JavaVersion.toVersion(target.java)
+}
+
+test { useJUnitPlatform() }
+loom { runs { client { runDir "run/${target.minecraft}" } } }
+
+if (providers.gradleProperty('liveTest').isPresent()) {
+    if (target.minecraft != '1.21.11') throw new GradleException('Client acceptance harness currently targets 1.21.11')
+    fabricApi.configureTests {
+        createSourceSet = true
+        modId = 'blockmind-client-test'
+        enableGameTests = false
+        enableClientGameTests = true
+    }
+    loom.runs.configureEach {
+        if (name.toLowerCase().contains('gametest')) {
+            vmArg "-Dblockmind.test.directory=${providers.gradleProperty('testDirectory').getOrElse("${rootDir.parentFile}/build/live-test")}"
+            vmArg '-Dblockmind.test.failFirstPlacement=true'
+            vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
+        }
+    }
 }
 
 jar {

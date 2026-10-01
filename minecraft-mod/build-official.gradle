@@ -1,0 +1,27 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+def target = gradle.ext.adapterTarget
+version = project.mod_version
+group = project.maven_group
+layout.buildDirectory = file("build/${target.minecraft}")
+base { archivesName = "${project.archives_base_name}-mc${target.minecraft}" }
+sourceSets.main.java.srcDirs = ['src/main/java', 'src/official/java']
+repositories { mavenCentral() }
+dependencies {
+    minecraft "com.mojang:minecraft:${target.minecraft}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${target.fabricApi}"
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+}
+processResources {
+    inputs.properties(version: project.version, minecraft: target.minecraft, java: target.java)
+    filesMatching('fabric.mod.json') { expand version: project.version, minecraft: target.minecraft, java: target.java }
+}
+tasks.withType(JavaCompile).configureEach { options.release = target.java }
+java { withSourcesJar(); sourceCompatibility = JavaVersion.toVersion(target.java); targetCompatibility = JavaVersion.toVersion(target.java) }
+jar { from('../LICENSE') { rename { 'LICENSE_blockmind' } } }
+test { useJUnitPlatform() }
+loom { runs { client { runDir "run/${target.minecraft}" } } }

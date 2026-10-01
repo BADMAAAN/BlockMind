@@ -12,11 +12,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e .
+      - run: python -m pip install -e ".[test]"
       - run: python -m unittest discover -s tests -v
+      - run: python -m compileall -q ai-core/src tests scripts
+      - run: blockmind "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool." --simulate
 
   fabric:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        minecraft: ['1.20.1', '1.20.4', '1.20.6', '1.21.1', '1.21.11', '26.3']
     defaults:
       run:
         working-directory: minecraft-mod
@@ -25,7 +31,15 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: gradle
       - run: chmod +x gradlew
-      - run: ./gradlew build --no-daemon
+      - name: Adapter build and deterministic tests (not runtime verification)
+        run: ./gradlew build -Ptarget=${{ matrix.minecraft }} --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adapter-${{ matrix.minecraft }}
+          path: |
+            minecraft-mod/build/${{ matrix.minecraft }}/libs/*.jar
+            minecraft-mod/build/${{ matrix.minecraft }}/test-results/

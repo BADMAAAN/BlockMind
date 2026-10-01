@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from .models import Bounds, Design, StructureComponent, Vec3i
 
@@ -16,6 +17,10 @@ class HouseSpecification:
     accent_material: str = "minecraft:dark_oak_planks"
     window_material: str = "minecraft:glass_pane"
     pool: bool = True
+
+
+class IntentProvider(Protocol):
+    def interpret(self, prompt: str) -> HouseSpecification: ...
 
 
 class PromptInterpreter:
