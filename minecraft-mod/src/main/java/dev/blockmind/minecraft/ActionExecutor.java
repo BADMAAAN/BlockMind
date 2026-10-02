@@ -46,7 +46,11 @@ final class ActionExecutor {
         String id; JsonArray operations; JsonArray results = new JsonArray(); int index;
         Batch(String id, JsonArray operations) { this.id = id; this.operations = operations; }
     }
-    private record Pending(String id, String kind, Pos target, JsonObject expected, long deadline) {}
+    private record Pending(String id, String kind, Pos target, JsonObject expected, long deadline, JsonObject guard) {
+        Pending(String id, String kind, Pos target, JsonObject expected, long deadline) {
+            this(id, kind, target, expected, deadline, null);
+        }
+    }
     private record Region(Pos min, Pos max) {
         Region {
             if (min.x() > max.x() || min.y() > max.y() || min.z() > max.z()) throw new IllegalArgumentException("inverted region");
@@ -202,6 +206,7 @@ final class ActionExecutor {
                 Region area = temp ? temporary : approved;
                 if (area == null || !area.contains(target)) { result(id, false, "action outside approved region", target); return; }
                 JsonObject expected = new JsonObject();
+                JsonObject guard = null;
                 String reason;
                 if (kind.equals("place_block")) {
                     if (Boolean.getBoolean("blockmind.test.failFirstPlacement") && !injectedFailure) {
@@ -215,14 +220,32 @@ final class ActionExecutor {
                     placementNanos += System.nanoTime() - start;
                     if (reason.isEmpty()) issued++;
                 } else if (kind.equals("break_block")) {
+                    if (temp && !action.has("expected")) {
+                        result(id, false, "temporary break requires an expected owned block", target); return;
+                    }
+                    if (action.has("expected")) {
+                        guard = action.getAsJsonObject("expected").deepCopy();
+                        if (!guard.has("block") || !guard.get("block").isJsonPrimitive()
+                                || !guard.getAsJsonPrimitive("block").isString())
+                            throw new IllegalArgumentException("break precondition requires a block id");
+                    }
                     expected.addProperty("block", "minecraft:air"); expected.add("properties", new JsonObject());
+                    JsonObject actual = game.inspect(target);
+                    if (air(actual)) { result(id, true, "already absent", target); return; }
+                    if (guard != null && !matches(actual, guard)) {
+                        result(id, false, "break precondition changed or target unloaded", target); return;
+                    }
+                    if (guard != null) {
+                        String unsafe = guardedBreakDanger(target);
+                        if (!unsafe.isEmpty()) { game.releaseMovement(); result(id, false, unsafe, target); return; }
+                    }
                     reason = game.breakBlock(target);
                 } else {
                     if (!action.has("expected")) { result(id, false, "interact requires expected block state for verification", target); return; }
                     expected = action.getAsJsonObject("expected"); reason = game.interact(target);
                 }
                 if (!reason.isEmpty()) result(id, false, reason, target);
-                else pending = new Pending(id, kind, target, expected, tick + 80);
+                else pending = new Pending(id, kind, target, expected, tick + 80, guard);
             }
             default -> result(id, false, "unsupported action: " + kind, null);
         }
@@ -244,12 +267,34 @@ final class ActionExecutor {
                 pending = null;
                 result(work.id, status.state() == NavigationProvider.NavigationStatus.State.SUCCEEDED, status.reason(), null);
             }
-        } else if (matches(game.inspect(work.target), work.expected)) {
-            pending = null; result(work.id, true, "observed and verified", work.target);
-        } else if (work.kind.equals("break_block")) {
-            String reason = game.breakBlock(work.target);
-            if (!reason.isEmpty()) { pending = null; result(work.id, false, reason, work.target); }
+        } else {
+            JsonObject actual = game.inspect(work.target);
+            if (matches(actual, work.expected) || (work.kind.equals("break_block") && air(actual))) {
+                pending = null; result(work.id, true, "observed and verified", work.target);
+            } else if (work.kind.equals("break_block")) {
+                if (work.guard != null && !matches(actual, work.guard)) {
+                    pending = null; game.releaseMovement(); result(work.id, false, "break precondition changed or target unloaded", work.target);
+                    return;
+                }
+                if (work.guard != null) {
+                    String unsafe = guardedBreakDanger(work.target);
+                    if (!unsafe.isEmpty()) { pending = null; game.releaseMovement(); result(work.id, false, unsafe, work.target); return; }
+                }
+                String reason = game.breakBlock(work.target);
+                if (!reason.isEmpty()) { pending = null; result(work.id, false, reason, work.target); }
+            }
         }
+    }
+
+    private static boolean air(JsonObject actual) {
+        return actual.has("loaded") && actual.get("loaded").getAsBoolean() && actual.has("block")
+            && Set.of("minecraft:air", "minecraft:cave_air", "minecraft:void_air").contains(actual.get("block").getAsString());
+    }
+
+    private String guardedBreakDanger(Pos target) {
+        if (MovementSafety.breaksOwnFootingOrBody(target, game.precisePosition()))
+            return "guarded break would remove own footing or body cell";
+        return game.immediateDanger();
     }
 
     static boolean matches(JsonObject actual, JsonObject expected) {

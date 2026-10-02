@@ -7,6 +7,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SchemaTests(unittest.TestCase):
+    def test_temporary_break_requires_precondition_but_ordinary_break_is_compatible(self):
+        payload = {"kind": "break_block", "position": {"x": 0, "y": 64, "z": 0}}
+        jsonschema.validate(payload, self.schema("action"))
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(payload | {"temporary": True}, self.schema("action"))
+        jsonschema.validate(payload | {"temporary": True, "expected": {"block": "minecraft:cobblestone"}}, self.schema("action"))
+
     def schema(self, name):
         return json.loads((ROOT / "protocol/schemas" / f"{name}.schema.json").read_text())
 

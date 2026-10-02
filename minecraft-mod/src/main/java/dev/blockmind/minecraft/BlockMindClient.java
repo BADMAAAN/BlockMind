@@ -35,7 +35,7 @@ public final class BlockMindClient implements ClientModInitializer {
         value.addProperty("minecraft", FabricLoader.getInstance().getModContainer("minecraft").orElseThrow().getMetadata().getVersion().getFriendlyString());
         value.addProperty("protocol", TcpBridge.PROTOCOL);
         JsonArray capabilities = new JsonArray();
-        for (String c : new String[]{"OBSERVE_BLOCKS", "OBSERVE_ENTITIES", "PLACE_BLOCK", "BREAK_BLOCK", "INTERACT",
+        for (String c : new String[]{"OBSERVE_BLOCKS", "OBSERVE_ENTITIES", "PLACE_BLOCK", "BREAK_BLOCK", "GUARDED_BREAK", "INTERACT",
             "CREATIVE_PROVISION", "CREATIVE_FLIGHT", "CANCEL_NAVIGATION", "BLOCK_STATE_ORIENTATION", "HAZARD_SCAN", "LOOK", "SELECT_HOTBAR",
             "ACTION_BATCH", "VALIDATE_BATCH", "EXECUTION_CONFIG", "AUDIO_CONTROL", "PERFORMANCE_METRICS"}) capabilities.add(c);
         // The primary Baritone instance is initialized after client entrypoints, not before them.

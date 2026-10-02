@@ -36,7 +36,14 @@ General `event` messages are reserved, **not currently implemented**.
 - `observe`, `observe_block(position)`, `observe_positions(positions)`, `observe_region(region)`. Explicit scans are limited to 4,096 cells per request. A block response includes `loaded`, block ID, string-valued properties, replaceability and collision presence. Unloaded state is not air.
 - `navigate(target)`: generic coordinate goal; exact target and mandatory hazard policy. Goal labels remain architectural vocabulary; follow/explore are not implemented behaviors. Tolerance is advisory; current provider requires the player's block position to match.
 - `look(yaw,pitch)`, `select_hotbar(slot)`, `provision(item)` (Creative only).
-- `place_block(position,block,properties,temporary)`, `break_block(position,temporary)` and `interact(position,expected,temporary)`. `expected` has block/properties; interaction without expected state is rejected.
+- `place_block(position,block,properties,temporary)`, `break_block(position,temporary,expected?)` and `interact(position,expected,temporary)`. `expected` has block/properties; interaction without expected state is rejected.
+- `GUARDED_BREAK` advertises game-thread break preconditions. For a break, `expected` is the **pre-mutation** block/state, not the desired air result. The adapter checks it before the first mutation and every subsequent breaking tick. Changed/unloaded targets abort; already absent targets succeed without mutation. Temporary breaks require this precondition. Core refuses guarded cleanup on an older adapter lacking the capability; update Core and adapter together. Ordinary unguarded permanent breaks retain the old wire format. Same-material replacement is not unique ownership proof; the journal and approved region remain required.
+
+Уборка временных опор требует `GUARDED_BREAK` и ожидаемый исходный блок. Проверка
+выполняется на игровом потоке перед каждым шагом разрушения; изменившийся или
+выгруженный блок не разрушается. Старый адаптер не получает небезопасный запасной
+запрос: обновляйте Core и мод вместе. Совпадение материала не доказывает уникальную
+принадлежность блока.
 
 Mutations execute on the client thread and poll actual world state for up to 80 ticks. Success requires block ID and all requested properties to match. Navigation has a 2,400-tick deadline. Controls interrupt pending work and clear queued requests; they are not blocked by normal Core action serialization. Pause aborts current action; resume permits later work. Stop remains terminal until explicit new/reconciled region approval. Already-transmitted Minecraft packets cannot be revoked.
 

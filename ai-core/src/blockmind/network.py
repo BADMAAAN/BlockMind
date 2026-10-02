@@ -279,6 +279,8 @@ class FabricMinecraftPort(MinecraftPort):
         return self.server.observation
 
     async def approve(self, project) -> None:
+        if project.plan.temporary_area is not None or project.temporary_blocks:
+            self.server.metadata.require("GUARDED_BREAK")
         response = await self.server.request("approve_region", {"region": project.plan.approved_area.to_dict(),
             "temporaryRegion": (project.plan.temporary_area or project.plan.approved_area).to_dict(),
             "dimension": project.dimension})
@@ -297,8 +299,13 @@ class FabricMinecraftPort(MinecraftPort):
         return bool(response.get("success"))
 
     async def break_block(self, operation: BuildOperation) -> bool:
-        response = await self.server.request("break_block", {"position": operation.position.to_dict(),
-            "temporary": operation.temporary})
+        payload = {"position": operation.position.to_dict(), "temporary": operation.temporary}
+        if operation.temporary or operation.block is not None:
+            if not operation.block:
+                raise ValueError("temporary cleanup requires the owned block as a break precondition")
+            self.server.metadata.require("GUARDED_BREAK")
+            payload["expected"] = {"block": operation.block, "properties": operation.properties.copy()}
+        response = await self.server.request("break_block", payload)
         self.last_action_reason = response.get("reason", "")
         return bool(response.get("success"))
 

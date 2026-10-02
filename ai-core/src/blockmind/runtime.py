@@ -799,11 +799,18 @@ class Builder:
         landings = project.scheduler.get("access_landings", [])
         reached = not landings
         for entry in reversed(landings[-3:]):
+            if not await self._gate(project): return
             anchor = Vec3i(**entry)
             if await self.port.block_at(anchor.offset(dy=-1)) != "minecraft:cobblestone": continue
             world = await self.port.world_state()
             nav = await self._navigate(NavigationGoal(NavigationGoalKind.RETURN_TO,anchor,.75),world,project)
-            if nav.success:
+            if not await self._gate(project): return
+            arrival = await self.port.interaction_world(anchor)
+            feet = arrival.player.position
+            if (nav.success and feet == anchor and not project.design.bounds.contains(feet)
+                    and arrival.block_at(feet) in AIR and arrival.block_at(feet.offset(dy=1)) in AIR
+                    and arrival.block_at(feet.offset(dy=-1)) == "minecraft:cobblestone"
+                    and not arrival.is_hazardous(feet) and not arrival.is_hazardous(feet.offset(dy=-1))):
                 reached = True
                 break
         if not reached and project.design.bounds.contains((await self.port.world_state()).player.position):
@@ -828,14 +835,22 @@ class Builder:
                 actual = await self.port.block_at(position)
                 if actual in AIR:
                     project.temporary_blocks.remove(owned)
+                    if self.checkpoint: self.checkpoint(project)
                     continue
                 if actual != owned["block"]:
+                    self.metrics.counts["cleanup_block_conflicts"] += 1
                     continue
+                # The block is a BREAK precondition, not the desired final state.
+                # Fabric checks it again on the game thread on every breaking tick.
+                removal.block = owned["block"]
+                failed_candidates = set()
                 for attempt in range(self.max_attempts):
                     world = await self.port.interaction_world(removal.position)
-                    options = candidates(removal, world)
+                    options = [candidate for candidate in candidates(removal, world, self.config.placement_radius)
+                               if candidate.feet not in failed_candidates]
                     if not options: break
-                    if can_interact(removal, world, world.player.position, self.config.placement_radius):
+                    if (world.player.position not in failed_candidates
+                            and can_interact(removal, world, world.player.position, self.config.placement_radius)):
                         from .navigation import NavigationResult
                         nav = NavigationResult(True,world.player.position,"reuse cleanup position")
                     else:
@@ -843,10 +858,32 @@ class Builder:
                             options[min(attempt, len(options)-1)].feet, .75), world, project)
                     if not await self._gate(project): return
                     if nav.success:
+                        arrival = await self.port.interaction_world(position)
+                        if not can_interact(removal, arrival, arrival.player.position, self.config.placement_radius):
+                            failed_candidates.add(arrival.player.position)
+                            failed_candidates.add(options[min(attempt, len(options)-1)].feet)
+                            self.metrics.counts["cleanup_unsafe_arrivals"] += 1
+                            continue
+                        actual = await self.port.block_at(position)
+                        if actual in AIR:
+                            project.temporary_blocks.remove(owned)
+                            if self.checkpoint: self.checkpoint(project)
+                            break
+                        if actual != owned["block"]:
+                            self.metrics.counts["cleanup_block_conflicts"] += 1
+                            break
+                        if not await self._gate(project): return
                         await self.port.break_block(removal)
                         if await self.port.block_at(position) in AIR:
                             project.temporary_blocks.remove(owned)
+                            if self.checkpoint: self.checkpoint(project)
                             break
+                        failed_candidates.add(arrival.player.position)
+                        self.metrics.counts["cleanup_rejected_breaks"] += 1
+                        LOG.warning("CLEANUP rejected position=%s feet=%s reason=%s", position,
+                            arrival.player.position, getattr(self.port, "last_action_reason", "") or "block remains occupied")
+                    else:
+                        failed_candidates.add(options[min(attempt, len(options)-1)].feet)
 
 
 class Validator:

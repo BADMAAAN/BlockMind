@@ -32,6 +32,7 @@
     "avoidHazards": {"type": "boolean"}
   },
   "allOf": [
+    {"if": {"required": ["kind", "temporary"], "properties": {"kind": {"const": "break_block"}, "temporary": {"const": true}}}, "then": {"required": ["position", "expected"]}},
     {"if": {"properties": {"kind": {"const": "action_batch"}}}, "then": {"required": ["operations"], "properties": {"operations": {"minItems": 1, "maxItems": 32}}}},
     {"if": {"properties": {"kind": {"const": "validate_batch"}}}, "then": {"required": ["operations"]}},
     {"if": {"properties": {"kind": {"const": "configure_execution"}}}, "then": {"required": ["speed_profile", "max_action_batch", "mute_game_audio", "restore_audio_after_build", "prefer_local_movement"]}}

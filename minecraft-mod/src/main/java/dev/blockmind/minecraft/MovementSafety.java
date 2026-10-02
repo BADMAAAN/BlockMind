@@ -2,6 +2,12 @@ package dev.blockmind.minecraft;
 
 /** Mapping-independent projection; grounded gravity must not project the player into the floor. */
 final class MovementSafety {
+    static boolean breaksOwnFootingOrBody(GameAccess.Pos target, double[] position) {
+        int feetY = (int)Math.floor(position[1]);
+        return target.y() >= feetY-1 && target.y() <= feetY+1
+            && target.x() < position[0]+.31 && target.x()+1 > position[0]-.31
+            && target.z() < position[2]+.31 && target.z()+1 > position[2]-.31;
+    }
     static boolean blocksFlightClearance(GameAccess.Pos target, double[] position) {
         int feetY=(int)Math.floor(position[1]);
         return target.y()>=feetY && target.y()<=feetY+2

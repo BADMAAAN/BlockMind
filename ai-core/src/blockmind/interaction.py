@@ -55,6 +55,10 @@ def can_interact(operation: BuildOperation, world: WorldState, feet: Vec3i, reac
     if strict and (not world.observed_bounds.contains(feet) or (not flight and feet.offset(dy=-1) not in world.solid)):
         return False
     eye = world.player.eye if feet == world.player.position and world.player.eye else (feet.x+.5, feet.y+1.62+(.35 if flight else 0), feet.z+.5)
+    if (strict and operation.kind == OperationKind.BREAK and feet.y-1 <= target.y <= feet.y+1
+            and target.x < eye[0]+.31 and target.x+1 > eye[0]-.31
+            and target.z < eye[2]+.31 and target.z+1 > eye[2]-.31):
+        return False  # Same conservative fractional footprint as the guarded adapter.
     if strict and operation.kind == OperationKind.PLACE:
         bottom = eye[1]-1.62
         if (target.x < eye[0]+.3 and target.x+1 > eye[0]-.3
