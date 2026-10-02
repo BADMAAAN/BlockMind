@@ -11,9 +11,17 @@
 ![Minecraft adapters: 1.20.1–26.3](https://img.shields.io/badge/Minecraft_adapters-1.20.1–26.3-62b47a)
 
 > [!IMPORTANT]
-> BlockMind is **experimental software under active development**. Automated Core tests pass and six exact Fabric targets build. Real 1.21.11 player construction, navigation, local repair and audio restoration passed a **64-block partial benchmark**; complete house acceptance is **not verified**. There is no stable release or production-readiness claim. See [compatibility](docs/COMPATIBILITY.md), [live evidence](docs/LIVE_TESTING.md) and [measured performance](docs/PERFORMANCE.md).
+> BlockMind is **experimental software under active development**. Core tests pass and six exact Fabric targets build. On 1.21.11, the authorized **1,243-cell Enderman** passed whole-world validation and separate saved-world inspection with three views/client exit 0. The original construction client's camera harness failed after its valid scan; the old house remains **FAILED**. There is no stable release or production-readiness claim. See [compatibility](docs/COMPATIBILITY.md), [live evidence](docs/LIVE_TESTING.md) and [measured performance](docs/PERFORMANCE.md).
 
 ## What is BlockMind?
+
+The current continuity pass adds a [global construction scheduler](docs/SCHEDULER.md),
+atomic fsync checkpoints, scan-based resume, bounded stale-route recovery and shared
+phase access. One fixed reference passes; broader access/stateful regressions
+remain experimental and incomplete.
+[Survival](docs/SURVIVAL.md), [Swarm](docs/SWARM.md) and the
+[Resource Governor](docs/RESOURCE_GOVERNOR.md) are design specifications, not working
+autonomy/multi-client features.
 
 BlockMind is intended to become an autonomous Minecraft architect, builder, and engineer. Instead of scripting every movement or supplying every block coordinate, a user describes an objective and the agent turns it into a semantic design, deterministic geometry, an executable plan, and player-like actions inside Minecraft.
 
@@ -86,7 +94,7 @@ Status labels are deliberately conservative. Code that compiles is not described
 | Deterministic house geometry | **Implemented** | Semantic components expand to exact block operations and material counts. |
 | Build planning and validation | **Implemented** | Plan generation, approved bounds, operation tracking, and block comparison. |
 | In-memory end-to-end simulation | **Tested** | Acceptance verifies 1,402 expected blocks, including door halves and a sealed pool bottom; not a physics simulation. |
-| Pause / resume / stop / emergency stop | **Implemented in code** | Automated stop coverage; live in-game controls still require verification. |
+| Pause / resume / stop / emergency stop | **Implemented in code** | Automated coverage; live pause/STOP/Core-session reconnect acknowledged in disposable tests. Emergency-stop and user-facing controls need broader runtime acceptance. |
 | Basic hazard and build-region checks | **Implemented in code** | Obvious target hazards and out-of-bounds destructive actions are rejected; no comprehensive safety guarantee. |
 | Fabric adapters | **BUILD VERIFIED** | 1.20.1, 1.20.4, 1.20.6, 1.21.1, 1.21.11 and 26.3; separate artifacts, shared logic. [Exact matrix](docs/COMPATIBILITY.md). |
 | Live Core ↔ Minecraft execution | **Partial LIVE verification** | 64/64 actual blocks correct in SAFE, FAST and MAX on 1.21.11; no complete autonomous house verified. |
@@ -254,6 +262,26 @@ Focused contributions are welcome, especially changes that strengthen the first 
 ## License
 
 BlockMind source code is available under the [Apache License 2.0](LICENSE). Baritone is an optional, separately installed dependency licensed under LGPL-3.0; it is not copied or bundled here. Fabric components retain their own licenses, and Minecraft remains proprietary software subject to Mojang/Microsoft terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Fixed Enderman reference experiment
+
+`blockmind --reference vscraft-enderman --creative-flight --origin X Y Z` selects
+an authorized visual reconstruction of [Goldrobin's overgrown Enderman](docs/reference-builds/vscraft-enderman.md):
+1,243 expected cells (revision 2), hollow body/head, inferred dimensions explicitly recorded,
+recreated mottling and three tree crowns. This is **not arbitrary video ingestion**
+or an author's exact schematic. `vscraft-enderman-legs` is a separate partial probe.
+Creative flight is opt-in and uses normal movement keys, loaded approved routes,
+collision/hazard guards and observed ability state; it does not provide Survival flight.
+Whole-reference world validation and saved-world inspection passed on 1.21.11;
+the original camera-failure process remains recorded separately. The old 1,402-block house
+regression remains **FAILED**, not silently replaced by a small passing fixture.
+
+With the matching adapter connected in your own disposable Creative world, run
+from the repository (change the origin to a clear, supported site):
+
+```powershell
+.\.venv\Scripts\blockmind.exe --reference vscraft-enderman --origin 100 65 100 --speed fast --creative-flight --interactive
+```
 
 ## Development disclaimer
 

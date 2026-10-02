@@ -5,7 +5,7 @@ Metadata checked **2026-10-01**. Experimental adapters, not stable releases.
 
 ## Status definitions
 
-- **SUPPORTED + TESTED:** completed real-world acceptance on that exact version. **No version currently has this status.**
+- **SUPPORTED + TESTED:** completed the required runtime acceptance suite on that exact version, not just one fixed reference. **No version currently has this status.**
 - **BUILDS / BUILD VERIFIED:** actual compilation, packaging and deterministic Java tests passed; not proof of in-game behavior.
 - **EXPERIMENTAL:** runtime path exists but complete acceptance is unverified.
 - **NOT CURRENTLY SUPPORTED:** no configured, verified adapter target. This includes unlisted patch versions and snapshots.
@@ -20,10 +20,16 @@ All rows use Fabric Loader **0.19.5**, Loom **1.17.21**, Gradle **9.6.0**, proto
 | 1.20.4 | 0.97.3+1.20.4 | Yarn 1.20.4+build.3 | 17 | legacy | 1.10.7 | PASS | EXPERIMENTAL, unverified |
 | 1.20.6 | 0.100.8+1.20.6 | Yarn 1.20.6+build.3 | 21 | legacy | 1.10.8 | PASS | EXPERIMENTAL, unverified |
 | 1.21.1 | 0.116.17+1.21.1 | Yarn 1.21.1+build.3 | 21 | intermediate | 1.11.3 | PASS | EXPERIMENTAL, unverified |
-| 1.21.11 | 0.141.6+1.21.11 | Yarn 1.21.11+build.6 | 21 | modern | 1.17.0 | PASS | Partial LIVE tests pass; full acceptance failed/pending |
+| 1.21.11 | 0.141.6+1.21.11 | Yarn 1.21.11+build.6 | 21 | modern | 1.17.0 | PASS | Enderman world + saved-world inspection PASS; house FAILED; broader runtime suite pending |
 | 26.3 | 0.161.0+26.3 | Official unobfuscated names; no Yarn | 25 | official | 1.20.0 | PASS | EXPERIMENTAL, unverified |
 
 Artifacts: `minecraft-mod/build/<minecraft>/libs/blockmind-minecraft-mc<minecraft>-0.1.1-dev.jar` (not `-sources.jar`). Build results are generated in `build/adapter-build-results.json`.
+
+Clean build/test rerun on **2026-10-02**: all six targets PASS, **25 Java tests**
+per target, zero failures/errors, including flight renewals, bounded routing and
+client-thread flight-clearance placement guard. `minecraft:grass` is the 1.20.1
+alias of modern `minecraft:short_grass` in the fixed Enderman; geometry and counts
+do not change. Only 1.21.11 has live evidence; other targets remain build-only.
 
 The shared executor, transport, safety/provider interfaces and protocol contain no Minecraft mapping types. Yarn targets share the main binding; tiny `ApiCompat` classes handle identifier, inventory and packet changes. The latest target uses an official-name binding because Minecraft is no longer obfuscated. CI runs separate target builds; it does **not** run the graphical acceptance world.
 
@@ -37,4 +43,4 @@ The shared executor, transport, safety/provider interfaces and protocol contain 
 
 ## Русское резюме
 
-Шесть точных версий выше действительно собираются. Это **не** подтверждение работы агента в игре. Ни одна версия пока не имеет статуса «SUPPORTED + TESTED»: для него требуется завершённая живая приёмочная постройка. Для каждой версии устанавливайте её собственный JAR, подходящий Fabric API и отдельный Baritone. Неуказанные версии и снимки не поддерживаются. Подробности запуска и свидетельства испытаний: [SETUP.md](SETUP.md), [LIVE_TESTING.md](LIVE_TESTING.md).
+Шесть точных версий выше действительно собираются. Это **не** подтверждение работы агента в игре. Ни одна версия пока не имеет статуса «SUPPORTED + TESTED»: для него требуется полный набор игровых приёмочных проверок, а не один фиксированный образец. Эндермен проверен на 1.21.11; дом и более широкая надёжность остаются нерешёнными. Для каждой версии устанавливайте её собственный JAR, подходящий Fabric API и отдельный Baritone. Неуказанные версии и снимки не поддерживаются. Подробности запуска и свидетельства испытаний: [SETUP.md](SETUP.md), [LIVE_TESTING.md](LIVE_TESTING.md).

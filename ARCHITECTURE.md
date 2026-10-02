@@ -20,7 +20,31 @@ Core issues `NavigationGoal` values such as `GO_TO`, `APPROACH`, and `MOVE_TO_BU
 
 Baritone types never cross the provider interface or wire protocol. Shared Java `GameAccess` normalizes positions, observations, interaction and movement release. Version-specific bindings implement it; see [the exact compatibility matrix](docs/COMPATIBILITY.md). This preserves the existing architecture rather than duplicating the entire mod per patch.
 
+Explicit Creative opt-in selects `CreativeFlightNavigationProvider` when the
+actual player has flight permission. It uses ordinary keys/ability packets,
+bounded loaded-cell routes and body/head clearance checks inside an approved
+region, never direct position/velocity or world-block assignment. Cancellation
+releases movement and preserves airborne hovering rather than forcing a fall.
+This provider does not implement Survival or Elytra navigation.
+
 ## Agent loop
+
+Raw geometry → dependency/support graph → semantic WorkZones → global continuity
+schedule → bounded local interaction/batching → observed validation/repair. Route
+eligibility is separate from strict stateful verification. All speed profiles receive
+the scheduler. [SCHEDULER.md](docs/SCHEDULER.md) documents phases, deterministic
+traversal, resume state, bounded postponement and the access planner's current limits.
+
+Core checkpoints flush/fsync a staging file before atomic replacement. Resume scans
+the region and does not replay successful mutations based on stale RUNNING/COMPLETE
+flags. Last observations are bounded history, never authoritative world state.
+The adapter samples exact floating-point player travel on client ticks; no Minecraft
+API is added to the socket or shutdown threads. Test-only snapshots retain pending
+goals/batch cursor, recent operations, versions/PID/thread for failure diagnostics.
+
+Future subsystem contracts: [Survival](docs/SURVIVAL.md), [Swarm](docs/SWARM.md),
+[Resource Governor](docs/RESOURCE_GOVERNOR.md). These are explicitly planned, not
+runnable services; the complete single-worker live acceptance gate remains first.
 
 ```text
 PERCEIVE → UPDATE WORLD → SELECT OBJECTIVE → PLAN
