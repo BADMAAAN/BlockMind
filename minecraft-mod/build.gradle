@@ -61,11 +61,16 @@ if (providers.gradleProperty('liveTest').isPresent()) {
         enableGameTests = false
         enableClientGameTests = true
     }
+    // Preserve ONLY the explicitly requested saved dev-world inspection run.
+    def preserveOwnedTestWorld = providers.gradleProperty('resumeWorld').isPresent()
+    tasks.named('deleteGameTestRunDir').configure { enabled = !preserveOwnedTestWorld }
     loom.runs.configureEach {
         if (name.toLowerCase().contains('gametest')) {
             vmArg "-Dblockmind.test.directory=${providers.gradleProperty('testDirectory').getOrElse("${rootDir.parentFile}/build/live-test")}"
             vmArg '-Dblockmind.test.failFirstPlacement=true'
             vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
+            if (providers.gradleProperty('resumeWorld').isPresent())
+                vmArg "-Dblockmind.test.resumeWorld=${providers.gradleProperty('resumeWorld').get()}"
             vmArg "-XX:ErrorFile=${providers.gradleProperty('testDirectory').get()}/hs_err_pid%p.log"
         }
     }

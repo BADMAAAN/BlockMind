@@ -21,6 +21,37 @@ sys.path.insert(0, str(ROOT / "ai-core/src"))
 from blockmind.cli import parser, run
 from blockmind.logging import configure_logging, JsonFormatter
 
+
+async def revalidate_owned_world(project_path, directory):
+    """Read-only validation after native restart; NEVER execute/repair a plan."""
+    from blockmind.network import FabricSessionServer, FabricMinecraftPort
+    from blockmind.runtime import ProjectStore, Validator
+    from blockmind.models import ProjectStatus
+    from blockmind.performance import counter_delta
+    store=ProjectStore(directory/'projects')
+    project=store.load(project_path)
+    server=FabricSessionServer()
+    started=time.monotonic()
+    try:
+        await server.start(); await server.wait_connected()
+        port=FabricMinecraftPort(server)
+        world=await port.world_state()
+        if project.dimension != world.player.dimension:
+            raise RuntimeError('saved test dimension does not match; no mutations allowed')
+        before=await server.request('performance',{})
+        report=await Validator().validate(project,port)
+        after=await server.request('performance',{})
+        if counter_delta(before,after,'issuedPlacements') != 0:
+            raise RuntimeError('read-only placement counter is unverified or changed')
+        project.status=ProjectStatus.COMPLETE if report.verified else ProjectStatus.FAILED
+        project.performance={'mode':'READ_ONLY_REVALIDATION_NOT_BUILD_TIMING',
+            'total_run_seconds':time.monotonic()-started,'mutation_attempts':0,
+            'before_configuration':before,'adapter':after,'transport':server.metrics.snapshot()}
+        store.save(project)
+        return 0 if report.verified else 1
+    finally:
+        await server.close()
+
 PROMPT = "Build a small modern two-story house using white concrete and dark oak, with large windows and a small pool."
 
 
@@ -36,9 +67,24 @@ def main():
     arguments.add_argument("--benchmark-perimeter", action="store_true")
     arguments.add_argument("--legacy-scheduler", action="store_true")
     arguments.add_argument("--restart-after", type=int, help="Opt-in STOP/Core-session reconnect in the SAME disposable world")
+    arguments.add_argument("--resume-project", type=Path, help="Revalidate the last owned completed test world after client failure; never create/teleport")
     args = arguments.parse_args()
     if args.restart_after is not None and args.restart_after < 1:
         arguments.error("--restart-after must be positive")
+    resume_world=None
+    if args.resume_project:
+        args.resume_project=args.resume_project.resolve()
+        own_runs=(ROOT/'build/live-test').resolve()
+        if not args.resume_project.is_relative_to(own_runs) or args.restart_after or args.reference != 'vscraft-enderman':
+            arguments.error('--resume-project requires an owned full-reference checkpoint and no --restart-after')
+        source_result=json.loads((args.resume_project.parent.parent/'result.json').read_text(encoding='utf-8'))
+        if not source_result.get('world_validation_verified') or Path(source_result['project_file']).resolve()!=args.resume_project:
+            arguments.error('source run must have verified the whole world before its client failure')
+        # Fixed dev run directory only. Caller must preserve the completed last
+        # world; no automatic search/open of personal worlds is permitted.
+        resume_world=(ROOT/'minecraft-mod/build/run/clientGameTest/saves/New World').resolve()
+        if not (resume_world/'level.dat').is_file():
+            arguments.error('last owned disposable world is absent; do not substitute another world')
     directory = ROOT / "build/live-test" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     directory.mkdir(parents=True)
     version = "1.17.0"
@@ -73,7 +119,8 @@ def main():
     logging.getLogger().addHandler(core_log)
     with (directory / "client.log").open("w", encoding="utf-8") as log:
         client = subprocess.Popen([str(wrapper), "runClientGameTest", "-Ptarget=1.21.11", "-PliveTest",
-            f"-PbaritoneJar={binary}", f"-PbaritoneDependencies={nested}", f"-PtestDirectory={directory}", "--no-daemon", "--console=plain"],
+            f"-PbaritoneJar={binary}", f"-PbaritoneDependencies={nested}", f"-PtestDirectory={directory}"] +
+            ([f"-PresumeWorld={resume_world}"] if resume_world else []) + ["--no-daemon", "--console=plain"],
             cwd=wrapper.parent, env=env, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
         started = time.monotonic()
         result = {"mode": "LIVE", "verified": False}
@@ -95,7 +142,15 @@ def main():
                 (["--legacy-scheduler"] if args.legacy_scheduler else []) +
                 (["--acceptance-stop-after", str(args.restart_after)] if args.restart_after else []) +
                 (["--acceptance-pause-after","40"] if args.reference else [] if args.benchmark_blocks or args.benchmark_access or args.benchmark_perimeter else ["--acceptance-pause-after", "221"]))
+            if args.resume_project:
+                cli_args=parser().parse_args(['--resume',str(args.resume_project),'--project-dir',str(directory/'projects'),
+                    '--speed',args.speed]+(['--creative-flight'] if args.creative_flight else []))
+                result['owned_world_resume']={'source_run':args.resume_project.parent.parent.name,
+                    'same_saved_disposable_world':True,'new_client_process':True,'no_setup_teleport':True}
             async def bounded_run():
+                if args.resume_project:
+                    return await asyncio.wait_for(revalidate_owned_world(args.resume_project,directory),
+                        max(1,args.timeout-(time.monotonic()-started)))
                 async def remaining(options):
                     return await asyncio.wait_for(run(options), max(1, args.timeout - (time.monotonic() - started)))
                 code = await remaining(cli_args)
@@ -181,6 +236,14 @@ def main():
                 result["world_validation_verified"] = True
                 result["verified"] = False
                 result["error"] = "world validation passed but client-test process did not exit successfully"
+            if result.get('verified') and args.reference == 'vscraft-enderman':
+                views_file=directory/'reference-views.json'
+                views=json.loads(views_file.read_text(encoding='utf-8')).get('views',[]) if views_file.exists() else []
+                result['camera_views']=views
+                if len(views)!=3 or not all(view.get('arrived') for view in views):
+                    result['world_validation_verified']=True
+                    result['verified']=False
+                    result['error']='world validation passed but whole-reference camera views are incomplete'
             (directory / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
             print(json.dumps(result, indent=2))
     return 0 if result.get("verified") and client.returncode == 0 else 1

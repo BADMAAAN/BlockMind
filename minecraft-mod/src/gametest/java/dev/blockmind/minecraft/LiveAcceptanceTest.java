@@ -10,9 +10,14 @@ import dev.blockmind.minecraft.navigation.*;
 public final class LiveAcceptanceTest implements FabricClientGameTest {
     @Override public void runTest(ClientGameTestContext context) {
         Path directory = Path.of(System.getProperty("blockmind.test.directory"));
-        try (var world = context.worldBuilder().create()) {
-            world.getServer().runCommand("gamemode creative @a");
-            world.getServer().runCommand("tp @a 97 -60 100");
+        String resumeWorld=System.getProperty("blockmind.test.resumeWorld");
+        // Pinned Fabric test-only save handle, never a production world loader.
+        try (var world = resumeWorld == null ? context.worldBuilder().create()
+                : new net.fabricmc.fabric.impl.client.gametest.world.TestWorldSaveImpl(context,Path.of(resumeWorld)).open()) {
+            if (resumeWorld == null) {
+                world.getServer().runCommand("gamemode creative @a");
+                world.getServer().runCommand("tp @a 97 -60 100");
+            }
             world.getClientWorld().waitForChunksDownload();
             Files.createDirectories(directory);
             Files.writeString(directory.resolve("ready"), "disposable Creative world ready\n");
@@ -44,7 +49,7 @@ public final class LiveAcceptanceTest implements FabricClientGameTest {
     private void captureReferenceViews(ClientGameTestContext context, Path directory, com.google.gson.JsonObject result) throws java.io.IOException {
         var project=JsonParser.parseString(Files.readString(Path.of(result.get("project_file").getAsString()))).getAsJsonObject();
         var origin=GameAccess.Pos.parse(project.getAsJsonObject("design").getAsJsonObject("origin"));
-        var game=new YarnGameAccess();
+        var game=context.computeOnClient(client -> new YarnGameAccess());
         var camera=new SafeNavigationProvider(game,new CreativeFlightNavigationProvider(game,new BaritoneNavigationProvider(game)));
         var views=new com.google.gson.JsonArray();
         int previousFov=context.computeOnClient(client -> client.options.getFov().getValue());
@@ -55,7 +60,7 @@ public final class LiveAcceptanceTest implements FabricClientGameTest {
                 camera.approveFlightRegion(origin.add(-28,-6,-28),origin.add(36,65,36));
                 camera.configureFlight(true);
             });
-            int[][] positions={{3,24,-22},{24,24,-15},{3,24,29}};
+            int[][] positions={{3,24,-22},{24,52,-15},{3,24,29}};
             String[] names={"reference-front","reference-quarter","reference-back"};
             for (int i=0;i<positions.length;i++) {
                 var target=origin.add(positions[i][0],positions[i][1],positions[i][2]);
