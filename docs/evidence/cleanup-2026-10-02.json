@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "date_moscow": "2026-10-02",
+  "scope": "Guarded temporary cleanup, not complete house acceptance",
+  "verification": {
+    "python": {"tests": 116, "seconds": 23.091, "status": "PASS"},
+    "compileall": "PASS",
+    "editable_install": "PASS",
+    "java": {
+      "targets": ["1.20.1", "1.20.4", "1.20.6", "1.21.1", "1.21.11", "26.3"],
+      "tests_per_target": 36,
+      "failures": 0,
+      "errors": 0,
+      "clean_build_matrix": "PASS",
+      "runtime_acceptance_implied": false
+    },
+    "reference_simulation": {
+      "expected": 1243, "correct": 1243, "missing": 0, "incorrect": 0,
+      "extra_permanent": 0, "temporary_remaining": 0, "status": "PASS",
+      "real_physics": false
+    }
+  },
+  "live_runs": [
+    {
+      "run": "20261002T190211",
+      "mode": "LIVE",
+      "minecraft": "1.21.11",
+      "fixture": "partial vertical access",
+      "creative_flight": false,
+      "expected": 28, "correct": 28, "missing": 0, "incorrect": 0,
+      "extra_permanent": 0, "temporary_remaining": 2,
+      "status": "FAILED",
+      "core_seconds": 146.70806430000812,
+      "actual_travel_blocks": 191.0071622419713,
+      "transport_navigation": 135,
+      "baritone_goals": 14,
+      "local_movement_starts": 132,
+      "rotations": 343,
+      "material_switches": 4,
+      "core_observations": 393,
+      "transport_round_trips": 1698,
+      "region_switches": 3,
+      "backtracks": 0,
+      "master_volume": [1, 0, 1],
+      "client_exit": 1,
+      "native_status": "0xC0000409"
+    },
+    {
+      "run": "20261002T190812",
+      "mode": "LIVE",
+      "minecraft": "1.21.11",
+      "fixture": "partial vertical access",
+      "creative_flight": false,
+      "expected": 28, "correct": 28, "missing": 0, "incorrect": 0,
+      "extra_permanent": 0, "temporary_remaining": 0,
+      "status": "PASS",
+      "core_seconds": 145.28859999997076,
+      "actual_travel_blocks": 189.70976477849075,
+      "transport_navigation": 134,
+      "baritone_goals": 14,
+      "local_movement_starts": 131,
+      "rotations": 342,
+      "material_switches": 4,
+      "core_observations": 387,
+      "transport_round_trips": 1670,
+      "region_switches": 3,
+      "backtracks": 0,
+      "guarded_footprint_rejections_then_alternative": 1,
+      "master_volume": [1, 0, 1],
+      "client_exit": 0
+    }
+  ],
+  "limitations": [
+    "Two development-stage runs, not a statistical speed benchmark.",
+    "The 28-cell ground fixture uses shared exterior access; earlier 32.528-second runs used different access execution.",
+    "Old full-house scan remains FAILED: expected 1402, correct 796, missing 606, incorrect 0, extra permanent 15, temporary 164.",
+    "No general native-crash fix, unique same-state ownership proof or sole-exit connectivity proof.",
+    "Owned worlds, logs, dumps, screenshots and downloaded dependencies remain ignored local artifacts."
+  ]
+}

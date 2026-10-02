@@ -125,4 +125,13 @@ FAST включён по умолчанию. SAFE проверяет каждо�
 - Access planning is bounded and may fail in obstructed interiors/upper floors. Stateful-block matcher tests do not prove actual placement mechanics.
 - Unloaded chunks abort scans; Core never assumes unknown terrain is safe.
 - The unauthenticated socket accepts loopback IPs only. Remote control requires a separate security design.
-- On some Windows runners Java NIO requires a short existing `TEMP`/`TMP` directory (for example `C:\jtmp`). This is a runner workaround, not a normal installation requirement.
+- On some Windows runners Java NIO fails before Gradle compilation with
+  `Unable to establish loopback connection` / `UnixDomainSockets.connect0`.
+  In the 2026-10-02 continuation, an explicit existing directory via the process-only
+  `-Djdk.net.unixdomain.tmpdir` JDK option allowed builds to start; changing selector
+  providers did not. No Windows/global environment setting was changed. This is a
+  runner workaround, not a normal installation requirement or a proved general cause.
+
+Temporary-access projects now require an adapter advertising `GUARDED_BREAK` before
+approval. Update Core and the version-matching Fabric JAR together; old adapters fail
+closed instead of performing unguarded cleanup. See [cleanup contract](CLEANUP_SAFETY.md).

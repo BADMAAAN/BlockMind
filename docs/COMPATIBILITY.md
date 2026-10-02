@@ -31,6 +31,12 @@ client-thread flight-clearance placement guard. `minecraft:grass` is the 1.20.1
 alias of modern `minecraft:short_grass` in the fixed Enderman; geometry and counts
 do not change. Only 1.21.11 has live evidence; other targets remain build-only.
 
+Cleanup-hardening continuation on **2026-10-02 Moscow**: final clean matrix PASS
+for the same six targets, **36 Java tests per target**, zero failures/errors.
+New adapters advertise `GUARDED_BREAK`. Projects with temporary access require
+this capability before approval; update Core and its matching JAR together.
+This does not upgrade any version to SUPPORTED + TESTED.
+
 The shared executor, transport, safety/provider interfaces and protocol contain no Minecraft mapping types. Yarn targets share the main binding; tiny `ApiCompat` classes handle identifier, inventory and packet changes. The latest target uses an official-name binding because Minecraft is no longer obfuscated. CI runs separate target builds; it does **not** run the graphical acceptance world.
 
 ## Official metadata sources

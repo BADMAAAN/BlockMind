@@ -19,6 +19,9 @@ The current continuity pass adds a [global construction scheduler](docs/SCHEDULE
 atomic fsync checkpoints, scan-based resume, bounded stale-route recovery and shared
 phase access. One fixed reference passes; broader access/stateful regressions
 remain experimental and incomplete.
+[Guarded cleanup](docs/CLEANUP_SAFETY.md) rechecks actual arrival and the owned block
+on each breaking tick. Projects using temporary access require an updated adapter
+advertising `GUARDED_BREAK`; update Core and the matching Fabric JAR together.
 [Survival](docs/SURVIVAL.md), [Swarm](docs/SWARM.md) and the
 [Resource Governor](docs/RESOURCE_GOVERNOR.md) are design specifications, not working
 autonomy/multi-client features.

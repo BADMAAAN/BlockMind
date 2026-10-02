@@ -261,6 +261,42 @@ Its final world counts supersede earlier checkpoint-only 680/692 numbers.
 
 ## Still required before SUPPORTED + TESTED
 
+### Cleanup-hardening continuation — 2026-10-02 Moscow
+
+`20261002T190211` ran the same 28-cell vertical-access fixture using the current
+global scheduler, shared exterior access and `GUARDED_BREAK`, with ordinary ground
+navigation (Creative flight off). Authoritative scan: **28/28 correct**, zero missing,
+incorrect or extra permanent cells, **2 temporary remaining: FAILED**. The remaining
+cobblestone column was at `(97,-60,100)` and `(97,-59,100)`. Core took **146.708 s**;
+actual travel **191.007 blocks**, transport NAV **135**, Baritone goals **14**, local
+movement starts **132**, rotations **343**, material switches **4**, region switches
+**3**, backtracks **0**, Core observations **393**, transport round trips **1,698**.
+These layers are distinct counters, not interchangeable navigation totals.
+Master Volume was observed **1→0→1**; Windows audio was unchanged. All construction
+and cleanup used actual player interactions. The failed assertion/shutdown reproduced
+native `0xC0000409`; client/Gradle exited 1. It is not a successful live acceptance.
+
+The first attempt did not record per-rejection reasons, so an exact live reason for
+those two cells is not asserted. Inspection found a concrete retry defect: a rejected
+cleanup stance could be reused on the next attempt. Core now excludes it, logs the
+adapter reason and checks the same fractional body/support footprint. Focused model
+tests prove alternative selection after a controlled rejection and bounded unresolved
+ownership, not live physics. The failed own save was copied before a fresh repeat.
+
+Repeat `20261002T190812`: **PARTIAL ACCESS LIVE ACCEPTANCE: PASS**. Final scan
+**28/28**, all missing/incorrect/extra/temporary counts zero, client/Gradle exit **0**.
+Core **145.289 s**, actual travel **189.710 blocks**, transport NAV **134**, Baritone
+goals **14**, local movement starts **131**, rotations **342**, material switches **4**,
+region switches **3**, backtracks **0**, Core observations **387**, transport round trips
+**1,670**. One rejected breaking stance was observed, then cleanup used another stance
+and removed all owned access. Master Volume **1→0→1**. This single repeat is reliability
+evidence for the small fixture, not a statistical speedup or a full-house/native-crash fix.
+Raw local logs, both owned save backups and the generated acceptance view remain ignored.
+
+The full-house status above is unchanged; no general native-crash fix or whole-build
+speed improvement is claimed. Shared access differs from the historical older fixture
+implementation, so its old 32.528 s is not a controlled before/after comparison.
+
 Full autonomous house completion, final block/property comparison, no extras or owned temporary blocks, actual pool stability/door orientation, live stop/emergency-stop during mutation and navigation, disconnect/resume without uncontrolled replay, and hazard fixtures. Current deterministic transport/control/recovery tests are valuable but not a substitute for those live scenarios. Other configured Minecraft targets are **BUILD VERIFIED only**, not runtime-tested.
 
 ## Русское резюме

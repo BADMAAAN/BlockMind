@@ -10,6 +10,9 @@ No stable release exists. Phase gates are evidence-based, not version promises.
 - Fixed-reference demonstration achieved: the 1,243-cell Enderman passed physical construction world validation and separate saved-world inspection with three views/client exit 0. The original post-build camera failure remains recorded. Next gates are broader stateful/access/stability acceptance; the house remains a separate failed access/cleanup regression that this PASS cannot upgrade.
 - Verify directional/stateful placement and navigation/fall guards in-game across each target.
 - Improve access planning for obstructed interiors and upper floors; current bounded ramps/platforms are not a general scaffold planner.
+- Guarded cleanup now rechecks actual arrival/retreat and game-thread block preconditions,
+  own footing/body and immediate danger per breaking tick; confirmed ownership changes
+  checkpoint immediately. General scaffold/sole-exit topology remains a separate gate.
 - Add a high-level AI provider implementation with schema validation; the `IntentProvider` boundary and deterministic fallback exist.
 - Add richer route constraints and Baritone event-based failure reasons.
 - Current continuity pass: global WorkZone/dependency scheduling, facade completion,

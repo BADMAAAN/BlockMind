@@ -1,5 +1,72 @@
 # Development and performance report — 2026-10-01 UTC
 
+## Cleanup-hardening continuation — 2026-10-02 Moscow
+
+Continued the existing repository from clean `main` at `20c70f7`; no new repo,
+release, worker swarm, general Survival or unrelated feature modules.
+
+Core previously checked temporary block ownership before navigation but did not
+recheck actual arrival/ownership immediately before cleanup. Navigation success
+could differ from actual position, and a changed target could still be destroyed.
+The adapter's pending break also reissued breaking on later ticks without retaining
+the original state precondition. These are concrete safety gaps, not a diagnosis
+of every historical house failure or of the OpenAL crash.
+
+Implemented [guarded cleanup](CLEANUP_SAFETY.md): fresh actual arrival/terrain and
+ownership checks, bounded failed-candidate exclusion, observed outside landing
+validation, immediate cleanup checkpoints and no unknown-mutation replay.
+`GUARDED_BREAK` verifies expected pre-mutation material/state on the game thread
+before every breaking step. Changed/unloaded targets, own fractional body/support
+footprint or immediate danger cancel breaking progress. Projects permitting temporary
+access fail closed before approval on old adapters. Core and mod must update together.
+
+Verification: **116 Python tests PASS (23.091 s)**, compilation and editable
+installation PASS, fixed Enderman simulation **1,243/1,243** with all discrepancy
+counts zero. Final clean build/test matrix PASS for **1.20.1, 1.20.4, 1.20.6,
+1.21.1, 1.21.11 and 26.3**; **36 Java tests each**, XML checked, zero failures/errors.
+The first matrix attempt failed before compilation in Windows Java NIO with
+`UnixDomainSockets.connect0` / `Invalid argument: connect`. A process-local existing
+`jdk.net.unixdomain.tmpdir` fixed build startup; no global environment/Windows setting
+was changed and a general root cause is not claimed.
+
+Live vertical-access attempt `20261002T190211` built **28/28**, but left **2** owned
+temporary cells and failed its final acceptance; exception shutdown reproduced
+`0xC0000409`. A concrete same-stance retry bug was then fixed without relaxing
+the game-thread guard. Repeat `20261002T190812` **PASS: 28/28**, zero missing,
+incorrect, extra or temporary cells, **client/Gradle exit 0**. One actual guarded
+footprint refusal was followed by successful cleanup from another stance. Core
+time **145.289 s**, actual travel **189.710 blocks**, NAV **134**, Core observations
+**387**, round trips **1,670**, region switches **3**, backtracks **0**; volume
+**1→0→1**. This is partial access/cleanup reliability, not full-house acceptance
+or evidence of a substantial speed improvement. See [live history](LIVE_TESTING.md).
+
+The completed own Enderman test save was copied before further fresh disposable
+tests; `level.dat` checksums matched. Existing screenshots and both older save backups
+remain ignored local artifacts. No personal world was searched or modified.
+
+The old full-house acceptance remains **FAILED: 796/1,402**, 606 missing, 15 extra
+permanent and 164 temporary cells. Local cleanup checks do not prove general
+escape connectivity, falling-block/scaffold topology or unique ownership when another
+actor replaces a block with an identical state. No whole-reference speedup or general
+native-crash fix is claimed.
+
+### Русское резюме продолжения
+
+Усилена уборка опор: фактические ноги игрока и блок перепроверяются после подхода,
+а мод повторяет проверку исходного состояния на каждом шаге разрушения. Изменение,
+выгрузка участка, опора под ногами и непосредственная опасность отменяют действие.
+Подтверждённая уборка сразу сохраняется; обрыв связи не вызывает слепой повтор.
+Старый мод без `GUARDED_BREAK` отклоняется до одобрения проекта.
+
+Пройдены 116 тестов Python, 36 тестов Java для каждой из шести версий и симуляция
+всех 1 243 ячеек эндермена. Это не исправление всех причин незавершённого дома:
+его полная живая приёмка по-прежнему FAILED. Core и Fabric-мод обновляются вместе.
+
+Повторный живой тест участка дома `20261002T190812` подтвердил 28/28 блоков,
+ноль расхождений и оставшихся опор, восстановление громкости и нормальный выход
+клиента. Первый прогон с двумя оставшимися опорами и сбоем завершения сохранён
+как FAILED; общий сбой OpenAL не объявляется исправленным.
+
 The original report is retained below as historical evidence. The new smart-builder
 pass is described in the dated appendix; do not apply the old test counts to current code.
 
