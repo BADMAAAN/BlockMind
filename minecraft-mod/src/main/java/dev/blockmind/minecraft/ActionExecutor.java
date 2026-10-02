@@ -24,9 +24,24 @@ final class ActionExecutor {
     private int perTick = 1;
     private int maxBatch = 16;
     private String profile = "fast";
+    private boolean creativeFlight;
     private long placementNanos;
     private long inspectionNanos;
     private long issued;
+    private double[] lastPosition;
+    private double travelDistance;
+    private int elevationChanges;
+    private final Deque<String> recentActions = new ArrayDeque<>();
+    JsonObject diagnostics() {
+        JsonObject value = new JsonObject(); value.addProperty("paused", paused); value.addProperty("stopped", stopped);
+        value.addProperty("queueSize", queue.size()); value.addProperty("thread", Thread.currentThread().getName());
+        value.addProperty("travelDistanceBlocks", travelDistance);
+        value.addProperty("elevationChanges", elevationChanges);
+        if (pending != null) { value.addProperty("pendingKind", pending.kind); value.add("navigationOrActionTarget", pending.target.json()); }
+        if (batch != null) { value.addProperty("batchId", batch.id); value.addProperty("batchCursor", batch.index); }
+        value.add("recentActions", new Gson().toJsonTree(recentActions));
+        value.add("navigation", navigation.performance()); return value;
+    }
     private static final class Batch {
         String id; JsonArray operations; JsonArray results = new JsonArray(); int index;
         Batch(String id, JsonArray operations) { this.id = id; this.operations = operations; }
@@ -65,8 +80,16 @@ final class ActionExecutor {
     }
 
     void tick(long tick) {
-        if (!game.ready()) { abort("world unavailable"); game.finishAudio(); approved = null; return; }
-        if (dimension != null && !dimension.equals(game.dimension())) { abort("dimension changed"); game.finishAudio(); stopped = true; approved = null; }
+        if (!game.ready()) { abort("world unavailable"); navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); approved = null; return; }
+        double[] position = game.precisePosition();
+        if (lastPosition != null) {
+            if (Math.floor(position[1]) != Math.floor(lastPosition[1])) elevationChanges++;
+            double squared = 0;
+            for (int i=0; i<3; i++) squared += Math.pow(position[i]-lastPosition[i], 2);
+            travelDistance += Math.sqrt(squared);
+        }
+        lastPosition = position;
+        if (dimension != null && !dimension.equals(game.dimension())) { abort("dimension changed"); navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); stopped = true; approved = null; }
         if (pending != null) poll(tick);
         if (batch != null && !paused && !stopped) { advanceBatch(); return; }
         if (pending != null || paused) return;
@@ -79,21 +102,33 @@ final class ActionExecutor {
 
     private void execute(String id, JsonObject action, long tick) {
         String kind = action.get("kind").getAsString();
+        if (creativeFlight && !paused && !stopped &&
+                (kind.startsWith("observe") || kind.equals("place_block") || kind.equals("action_batch")))
+            game.tickFlight(); // Renew only for active requested work, never idle controls.
+        if (!kind.startsWith("observe") && !kind.equals("performance")) {
+            recentActions.addLast(kind+":"+id); while (recentActions.size()>16) recentActions.removeFirst();
+        }
         if (kind.equals("performance")) {
             JsonObject payload = base(true, "metrics"); payload.add("gameTimings", game.performance());
             payload.add("navigationTimings", navigation.performance());
             payload.addProperty("placementSeconds", placementNanos / 1e9); payload.addProperty("inspectionSeconds", inspectionNanos / 1e9);
-            payload.addProperty("issuedPlacements", issued); send(id, payload); return;
+            payload.addProperty("issuedPlacements", issued); payload.add("runtimeState", diagnostics()); send(id, payload); return;
         }
         if (kind.equals("configure_execution")) {
+            if (stopped) { result(id,false,"executor stopped; approve a new/reconciled project",null); return; }
+            boolean flight = action.has("creative_flight") && action.get("creative_flight").getAsBoolean();
+            if (!navigation.configureFlight(flight)) { result(id,false,"Creative flight configuration rejected",null); return; }
+            creativeFlight = flight;
             profile = action.get("speed_profile").getAsString();
             perTick = switch(profile) { case "safe", "normal" -> 1; case "fast" -> 2; case "max" -> 4; default -> throw new IllegalArgumentException("unknown speed profile"); };
             maxBatch = Math.max(1, Math.min(32, action.get("max_action_batch").getAsInt()));
             game.configureAudio(action.get("mute_game_audio").getAsBoolean(), action.get("restore_audio_after_build").getAsBoolean());
             navigation.configureLocal(action.get("prefer_local_movement").getAsBoolean());
-            result(id, true, "execution configured", null); return;
+            if (flight && !game.flying()) pending = new Pending(id,kind,game.playerPosition(),null,tick+80);
+            else result(id, true, "execution configured", null);
+            return;
         }
-        if (kind.equals("finish_project")) { game.finishAudio(); result(id, true, "audio policy applied", null); return; }
+        if (kind.equals("finish_project")) { navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); result(id, true, "audio and flight policies applied", null); return; }
         if (kind.equals("validate_batch")) {
             JsonArray operations = action.getAsJsonArray("operations");
             if (operations.size() > 256) throw new IllegalArgumentException("validation batch too large");
@@ -119,6 +154,7 @@ final class ActionExecutor {
             if (approved.size() <= 0 || approved.size() > 1_000_000 || temporary.size() <= 0 || temporary.size() > 1_000_000)
                 throw new IllegalArgumentException("invalid region size");
             dimension = game.dimension(); stopped = false; paused = false;
+            navigation.approveFlightRegion(temporary.min(),temporary.max());
             result(id, true, "region approved", null); return;
         }
         if (kind.equals("observe")) {
@@ -150,6 +186,9 @@ final class ActionExecutor {
             }
             case "navigate" -> {
                 Pos target = Pos.parse(action.getAsJsonObject("target"));
+                if (creativeFlight && (temporary == null || !temporary.contains(target))) {
+                    result(id,false,"flight target outside approved temporary region",null); return;
+                }
                 NavigationProvider.StartResult started = navigation.start(target, true);
                 if (!started.accepted()) result(id, false, started.reason(), target);
                 else pending = new Pending(id, kind, started.target(), null, tick + 2400);
@@ -191,8 +230,15 @@ final class ActionExecutor {
 
     private void poll(long tick) {
         Pending work = pending;
-        if (tick >= work.deadline) { abort("action timed out; observed state did not match"); return; }
-        if (work.kind.equals("navigate")) {
+        if (tick >= work.deadline) {
+            abort("action timed out; observed state did not match");
+            if (work.kind.equals("configure_execution")) { navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); }
+            return;
+        }
+        if (work.kind.equals("configure_execution")) {
+            game.tickFlight();
+            if (game.flying()) { game.releaseMovement(); pending = null; result(work.id,true,"execution configured; Creative flight observed",null); }
+        } else if (work.kind.equals("navigate")) {
             NavigationProvider.NavigationStatus status = navigation.poll();
             if (status.state() != NavigationProvider.NavigationStatus.State.RUNNING) {
                 pending = null;
@@ -221,7 +267,7 @@ final class ActionExecutor {
                 if (stopped) { result(id, false, "stop is terminal; approve a new/reconciled project", null); return; }
                 paused = false;
             }
-            case "stop", "emergency_stop" -> { stopped = true; paused = false; abort(kind); game.finishAudio(); }
+            case "stop", "emergency_stop" -> { stopped = true; paused = false; abort(kind); navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); }
             case "cancel_navigation" -> abort("navigation cancelled");
             default -> { result(id, false, "unknown control: " + kind, null); return; }
         }
@@ -235,7 +281,7 @@ final class ActionExecutor {
         JsonObject value;
         while ((value = queue.poll()) != null) result(value.get("id").getAsString(), false, reason, null);
     }
-    void disconnect() { abort("connection lost"); game.finishAudio(); stopped = true; approved = null; temporary = null; completed.clear(); }
+    void disconnect() { abort("connection lost"); navigation.configureFlight(false); creativeFlight = false; game.finishAudio(); stopped = true; approved = null; temporary = null; completed.clear(); lastPosition = null; }
     void newSession() { disconnect(); stopped = false; paused = false; }
 
     private JsonObject base(boolean success, String reason) {
@@ -262,7 +308,7 @@ final class ActionExecutor {
         if (op.has("properties") && op.getAsJsonObject("properties").size() > 0) return false;
         if (op.has("temporary") && op.get("temporary").getAsBoolean()) return false;
         String block = op.get("block").getAsString().replace("minecraft:", "");
-        return Set.of("stone", "cobblestone", "smooth_quartz", "quartz_block", "bricks", "dirt", "glass").contains(block)
+        return Set.of("stone", "cobblestone", "smooth_quartz", "quartz_block", "bricks", "dirt", "glass", "deepslate_bricks", "smooth_basalt", "moss_block").contains(block)
             || block.endsWith("_planks") || block.endsWith("_concrete") || block.endsWith("_wool");
     }
     private void advanceBatch() {

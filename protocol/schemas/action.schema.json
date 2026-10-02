@@ -12,6 +12,7 @@
     "mute_game_audio": {"type": "boolean"},
     "restore_audio_after_build": {"type": "boolean"},
     "prefer_local_movement": {"type": "boolean"},
+    "creative_flight": {"type": "boolean"},
     "position": {"$ref": "#/$defs/position"},
     "target": {"$ref": "#/$defs/position"},
     "block": {"type": "string"},

@@ -66,6 +66,7 @@ if (providers.gradleProperty('liveTest').isPresent()) {
             vmArg "-Dblockmind.test.directory=${providers.gradleProperty('testDirectory').getOrElse("${rootDir.parentFile}/build/live-test")}"
             vmArg '-Dblockmind.test.failFirstPlacement=true'
             vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
+            vmArg "-XX:ErrorFile=${providers.gradleProperty('testDirectory').get()}/hs_err_pid%p.log"
         }
     }
 }

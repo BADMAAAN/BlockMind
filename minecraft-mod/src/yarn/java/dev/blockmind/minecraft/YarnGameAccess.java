@@ -18,6 +18,48 @@ final class YarnGameAccess implements GameAccess {
     private int rotationCount, selectionCount;
     private final java.util.Map<String, Integer> materialSlots = new java.util.LinkedHashMap<>();
     @Override public boolean creative() { return client.player.getAbilities().creativeMode; }
+    private boolean flightRequested, flightOwned, previousFlight;
+    private Object flightPlayer;
+    @Override public boolean flying() { return ready() && client.player.getAbilities().flying; }
+    @Override public boolean configureFlight(boolean enabled) {
+        if (!enabled) flightRequested = false;
+        if (!ready() || client.player != flightPlayer) { flightOwned = false; flightPlayer = null; }
+        if (!ready()) return !enabled;
+        if (enabled && (!creative() || !client.player.getAbilities().allowFlying)) return false;
+        flightRequested = enabled;
+        if (enabled) {
+            if (!flightOwned) { previousFlight = flying(); flightOwned = true; flightPlayer = client.player; }
+            tickFlight();
+        } else if (flightOwned && (previousFlight || client.player.isOnGround())) {
+            client.player.getAbilities().flying = previousFlight;
+            client.player.sendAbilitiesUpdate(); flightOwned = false;
+        }
+        return true; // Preserve hovering on an airborne cancellation.
+    }
+    @Override public void tickFlight() {
+        if (!flightRequested || !ready() || client.player != flightPlayer || !creative() || flying()) return;
+        if (client.player.isOnGround()) client.options.jumpKey.setPressed(true);
+        else {
+            client.player.getAbilities().flying = true; client.player.sendAbilitiesUpdate();
+            client.options.jumpKey.setPressed(false);
+        }
+    }
+    @Override public String flightMove(Pos target) {
+        if (!ready() || !creative() || !flightRequested) return "Creative flight unavailable";
+        tickFlight();
+        if (!flying()) return "moving";
+        releaseMovement();
+        double dx=target.x()+.5-client.player.getX(), dy=target.y()+.35-client.player.getY(), dz=target.z()+.5-client.player.getZ();
+        Vec3d velocity=client.player.getVelocity();
+        if (dx*dx+dz*dz < .0225 && Math.abs(dy)<.1 && velocity.lengthSquared()<.0025) return "arrived";
+        double steerX=dx-velocity.x*2.5, steerZ=dz-velocity.z*2.5, steerY=dy-velocity.y*2.5;
+        if (steerX*steerX+steerZ*steerZ>.0225) {
+            look((float)Math.toDegrees(Math.atan2(-steerX,steerZ)),0);
+            client.options.forwardKey.setPressed(true);
+        }
+        client.options.jumpKey.setPressed(steerY>.1); client.options.sneakKey.setPressed(steerY<-.1);
+        return "moving";
+    }
     @Override public void configureAudio(boolean mute, boolean restore) { audio.begin(mute, restore); }
     @Override public void finishAudio() { audio.finish(); }
     @Override public JsonObject performance() {
@@ -43,6 +85,7 @@ final class YarnGameAccess implements GameAccess {
     private Pos point(BlockPos p) { return new Pos(p.getX(), p.getY(), p.getZ()); }
     @Override public boolean ready() { return client.player != null && client.world != null && client.interactionManager != null; }
     @Override public Pos playerPosition() { return client.player == null ? new Pos(0, 0, 0) : point(client.player.getBlockPos()); }
+    @Override public double[] precisePosition() { return new double[]{client.player.getX(), client.player.getY(), client.player.getZ()}; }
     @Override public String dimension() { return client.world.getRegistryKey().getValue().toString(); }
     private static <T extends Comparable<T>> String property(BlockState state, Property<T> property) { return property.name(state.get(property)); }
 
@@ -65,6 +108,7 @@ final class YarnGameAccess implements GameAccess {
         player.addProperty("dimension", dimension()); player.addProperty("health", client.player.getHealth());
         player.addProperty("hunger", client.player.getHungerManager().getFoodLevel());
         player.addProperty("creative", client.player.getAbilities().creativeMode); player.addProperty("onGround", client.player.isOnGround());
+        player.addProperty("flying", flying());
         JsonArray eye = new JsonArray(); eye.add(client.player.getEyePos().x); eye.add(client.player.getEyePos().y); eye.add(client.player.getEyePos().z); player.add("eye", eye);
         JsonArray velocity = new JsonArray(); Vec3d v = client.player.getVelocity(); velocity.add(v.x); velocity.add(v.y); velocity.add(v.z); player.add("velocity", velocity);
         JsonArray inventory = new JsonArray();
@@ -135,6 +179,8 @@ final class YarnGameAccess implements GameAccess {
         if (!client.world.isChunkLoaded(pos(p))) return "target chunk unloaded";
         if (!client.world.getBlockState(pos(p)).isReplaceable()) return "target occupied";
         if (client.player.getBoundingBox().intersects(new Box(pos(p)))) return "player collision at target";
+        if (flightRequested && flying() && MovementSafety.blocksFlightClearance(p,precisePosition()))
+            return "placement would block owned flight clearance";
         if (!Registries.BLOCK.containsId(ApiCompat.id(block)) || !material(block)) return "material unavailable";
         for (Direction side : Direction.values()) {
             BlockPos support = pos(p).offset(side); BlockState supportState = client.world.getBlockState(support);
@@ -203,6 +249,17 @@ final class YarnGameAccess implements GameAccess {
         if (state.isOf(Blocks.MAGMA_BLOCK)) return "hot_surface";
         return "";
     }
+    @Override public String unsafeFlight(Pos feet) {
+        if (!ready() || !creative() || !client.world.isChunkLoaded(pos(feet))) return "unloaded or non-Creative flight";
+        if (feet.y()<=client.world.getBottomY()+2) return "void risk";
+        for (int y=0;y<=2;y++) {
+            BlockState state=client.world.getBlockState(pos(feet.add(0,y,0)));
+            if (!hazard(state).isEmpty()) return "hazard: "+hazard(state);
+            if (state.isOf(Blocks.WATER)) return "water flight rejected";
+            if (!state.getCollisionShape(client.world,pos(feet.add(0,y,0))).isEmpty()) return "flight collision";
+        }
+        return "";
+    }
     @Override public String unsafe(Pos feet) {
         if (!ready() || !client.world.isChunkLoaded(pos(feet))) return "unloaded terrain";
         if (feet.y() <= client.world.getBottomY() + 2) return "void risk";
@@ -222,6 +279,17 @@ final class YarnGameAccess implements GameAccess {
         Vec3d velocity = client.player.getVelocity();
         Pos next = MovementSafety.projectedFeet(client.player.getX(), client.player.getY(), client.player.getZ(),
             velocity.x, velocity.y, velocity.z, client.player.isOnGround());
+        if (flying() && creative()) {
+            if (velocity.y < 0) next = MovementSafety.clipDescendingToSupport(next, client.player.getY(), p ->
+                !client.world.getBlockState(pos(p)).getCollisionShape(client.world, pos(p)).isEmpty());
+            return unsafeFlight(next);
+        }
+          if (velocity.y < 0) {
+              String actualDanger = unsafe(playerPosition());
+              if (!actualDanger.isEmpty() && !actualDanger.equals("feet/head collision")) return actualDanger;
+              next = MovementSafety.clipDescendingToSupport(next, client.player.getY(), p ->
+                  !client.world.getBlockState(pos(p)).getCollisionShape(client.world, pos(p)).isEmpty());
+          }
         // Guard immediate predicted movement, including a falling Creative player.
         String danger = unsafe(next);
         // Projected contact with a stair/one-block step is normal pathfinding, not suffocation.

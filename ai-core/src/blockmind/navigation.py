@@ -32,6 +32,16 @@ class NavigationResult:
     used_alternative: bool = False
 
 
+def failure_kind(reason: str) -> str:
+    reason = reason.lower()
+    for needle, kind in (("unloaded", "unloaded_region"), ("drop", "unsafe_drop"), ("stale", "stale_route"),
+                         ("blocked", "blocked_path"), ("displaced", "player_displaced"), ("scaffold", "missing_access"),
+                         ("unreachable", "unreachable_position"), ("stopped before", "unreachable_position"),
+                         ("paused", "control_interrupt"), ("cancel", "control_interrupt")):
+        if needle in reason: return kind
+    return "provider_failure"
+
+
 class NavigationProvider(ABC):
     @abstractmethod
     async def navigate(self, goal: NavigationGoal, world: WorldState) -> NavigationResult:

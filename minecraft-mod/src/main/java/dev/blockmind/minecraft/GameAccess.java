@@ -17,6 +17,7 @@ public interface GameAccess {
     }
     boolean ready();
     Pos playerPosition();
+    default double[] precisePosition() { Pos p = playerPosition(); return new double[]{p.x(), p.y(), p.z()}; }
     String dimension();
     JsonObject observe(int radius, long tick);
     JsonObject inspect(Pos target);
@@ -30,6 +31,11 @@ public interface GameAccess {
     String unsafe(Pos feet);
     String immediateDanger();
     default boolean creative() { return false; }
+    default boolean flying() { return false; }
+    default boolean configureFlight(boolean enabled) { return !enabled; }
+    default void tickFlight() { }
+    default String flightMove(Pos target) { return "unsupported"; }
+    default String unsafeFlight(Pos target) { return "unsupported"; }
     default void configureAudio(boolean mute, boolean restore) { }
     default void finishAudio() { }
     default JsonObject performance() { return new JsonObject(); }

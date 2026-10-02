@@ -21,7 +21,7 @@ def classify(op: BuildOperation) -> OperationClass:
     if op.properties:
         return OperationClass.STATEFUL
     name = (op.block or "").removeprefix("minecraft:")
-    cubes = {"stone", "cobblestone", "smooth_quartz", "quartz_block", "bricks", "dirt", "glass"}
+    cubes = {"stone", "cobblestone", "smooth_quartz", "quartz_block", "bricks", "dirt", "glass", "deepslate_bricks", "smooth_basalt", "moss_block"}
     return OperationClass.SIMPLE if name in cubes or name.endswith(("_planks", "_concrete", "_wool")) else OperationClass.STATEFUL
 
 
@@ -34,11 +34,12 @@ class ExecutionConfig:
     placement_radius: float = 3.8
     reuse_interaction_positions: bool = True
     prefer_local_movement: bool = True
+    creative_flight: bool = False
     mute_game_audio: bool = True
     restore_audio_after_build: bool = True
 
     def __post_init__(self):
-        for name in ("adaptive_verification", "component_validation", "reuse_interaction_positions", "prefer_local_movement", "mute_game_audio", "restore_audio_after_build"):
+        for name in ("adaptive_verification", "component_validation", "reuse_interaction_positions", "prefer_local_movement", "creative_flight", "mute_game_audio", "restore_audio_after_build"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be boolean")
         if self.speed_profile not in ("safe", "normal", "fast", "max"):
@@ -71,33 +72,25 @@ class ExecutionConfig:
 
 
 class BuildPlanOptimizer:
-    def optimize(self, plan):
-        """Stable component/layer serpentine sweeps, with stateful and dependency barriers.
+    def optimize(self, plan, **options):
+        from .scheduler import ConstructionScheduler
+        return ConstructionScheduler().optimize(plan, **options)
 
-        Only runs of simple operations in one layer are regrouped. Unknown/technical
-        operations retain their original order; explicit dependencies are never crossed.
-        """
+
+class LegacyBuildPlanOptimizer:
+    """Frozen 19db2c8 ordering, developer-only A/B reference, never the default."""
+    def optimize(self, plan):
         result, run = [], []
         def flush():
-            if not run:
-                return
-            components = list(dict.fromkeys(op.component_id for op in run))
-            for component in components:
-                local = [op for op in run if op.component_id == component]
-                result.extend(sorted(local, key=lambda op: (op.position.z,
-                    op.position.x if op.position.z % 2 == 0 else -op.position.x, op.block or "")))
+            for component in dict.fromkeys(op.component_id for op in run):
+                result.extend(sorted((op for op in run if op.component_id == component),
+                    key=lambda op: (op.position.z, op.position.x if op.position.z%2 == 0 else -op.position.x, op.block or "")))
             run.clear()
         for op in plan.operations:
             if classify(op) != OperationClass.SIMPLE or op.depends_on:
                 flush(); result.append(op)
             else:
-                if run and run[-1].position.y != op.position.y:
-                    flush()
+                if run and run[-1].position.y != op.position.y: flush()
                 run.append(op)
         flush()
-        seen = set()
-        for op in result:
-            if any(dep not in seen for dep in op.depends_on):
-                raise ValueError("raw plan dependencies must precede their dependents")
-            seen.add(op.id)
         return result

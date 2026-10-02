@@ -24,7 +24,7 @@ class SimulatedMinecraftPort(MinecraftPort):
             return False
         self.world.blocks[operation.position] = operation.block
         self.world.properties[operation.position] = operation.properties.copy()
-        if operation.block.endswith("_door") and operation.properties.get("half") == "lower":
+        if (operation.block.endswith("_door") or operation.block in {'minecraft:rose_bush','minecraft:tall_grass'}) and operation.properties.get("half") == "lower":
             upper = operation.position.offset(dy=1)
             self.world.blocks[upper] = operation.block
             self.world.properties[upper] = operation.properties | {"half": "upper"}

@@ -70,6 +70,7 @@ class PlayerState:
     velocity: tuple[float, float, float] = (0.0, 0.0, 0.0)
     inventory: dict[str, int] = field(default_factory=dict)
     eye: tuple[float, float, float] | None = None
+    flying: bool = False
 
 
 @dataclass
@@ -175,6 +176,8 @@ class ProjectState:
     baseline_captured: bool = False
     execution: dict[str, Any] = field(default_factory=dict)
     performance: dict[str, Any] = field(default_factory=dict)
+    scheduler: dict[str, Any] = field(default_factory=dict)
+    last_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def progress(self) -> float:

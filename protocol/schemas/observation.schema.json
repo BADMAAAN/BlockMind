@@ -6,7 +6,7 @@
   "required": ["tick", "player", "blocks", "hazards"],
   "properties": {
     "tick": {"type": "integer", "minimum": 0},
-    "player": {"type": "object"},
+    "player": {"type": "object", "properties": {"flying": {"type": "boolean"}}},
     "blocks": {"type": "array", "items": {"type": "object"}},
     "entities": {"type": "array", "items": {"type": "object"}},
     "hazards": {"type": "array", "items": {"type": "object"}}

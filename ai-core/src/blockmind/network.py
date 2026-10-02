@@ -9,7 +9,7 @@ from typing import Any
 from .models import Bounds, BuildOperation, Hazard, HazardKind, PlayerState, Vec3i, WorldState
 from .navigation import NavigationGoal, NavigationProvider, NavigationResult
 from .protocol import AdapterMetadata, CapabilityError, Envelope, MAX_MESSAGE_BYTES, NdjsonSession, ProtocolError
-from .runtime import MinecraftPort
+from .runtime import MinecraftPort, ExecutionStopped
 from .performance import PerformanceMetrics
 
 LOG = logging.getLogger("blockmind.network")
@@ -120,7 +120,8 @@ class FabricSessionServer:
                 dimension=player.get("dimension", "minecraft:overworld"), health=float(player.get("health", 20)),
                 hunger=int(player.get("hunger", 20)), creative=bool(player.get("creative", False)),
                 on_ground=bool(player.get("onGround", False)), inventory=inventory,
-                velocity=tuple(player.get("velocity", (0, 0, 0))))
+                velocity=tuple(player.get("velocity", (0, 0, 0))),
+                flying=bool(player.get("flying", False)))
             if "eye" in player:
                 self.observation.player.eye = tuple(float(v) for v in player["eye"])
             if previous_dimension != self.observation.player.dimension:
@@ -216,6 +217,20 @@ class FabricSessionServer:
 
 
 class FabricMinecraftPort(MinecraftPort):
+    async def _read_request(self, kind, payload, **options):
+        # PAUSE aborts in-flight adapter work, including observations. Only
+        # read-only requests may be retried after the acknowledged resume.
+        for _ in range(2):
+            control = getattr(self, "control_state", None)
+            if control: await control.wait()
+            if control and control.stopped:
+                raise ExecutionStopped('acknowledged STOP before read')
+            response = await self.server.request(kind, payload, **options)
+            if control and control.stopped:
+                raise ExecutionStopped('acknowledged STOP during read')
+            if response.get("success") or response.get("reason") != "paused" or not control:
+                return response
+        return response
     def __init__(self, server: FabricSessionServer) -> None:
         self.server = server
         self.last_action_reason = ""
@@ -225,6 +240,8 @@ class FabricMinecraftPort(MinecraftPort):
         return self.server.metadata is not None and {"ACTION_BATCH", "VALIDATE_BATCH"} <= self.server.metadata.capabilities
 
     async def configure_execution(self, config):
+        if config.creative_flight and self.server.metadata:
+            self.server.metadata.require("CREATIVE_FLIGHT")
         if self.server.metadata and "EXECUTION_CONFIG" in self.server.metadata.capabilities:
             response = await self.server.request("configure_execution", config.to_dict())
             if not response.get("success"):
@@ -246,7 +263,7 @@ class FabricMinecraftPort(MinecraftPort):
     async def validate_operations(self, operations):
         mismatches = set()
         for start in range(0, len(operations), 256):
-            response = await self.server.request("validate_batch", {"operations": [self._wire(op) for op in operations[start:start + 256]]})
+            response = await self._read_request("validate_batch", {"operations": [self._wire(op) for op in operations[start:start + 256]]})
             if not response.get("success"):
                 raise RuntimeError(response.get("reason", "component validation rejected"))
             for entry in response["mismatches"]:
@@ -256,7 +273,7 @@ class FabricMinecraftPort(MinecraftPort):
         return mismatches
 
     async def world_state(self) -> WorldState:
-        response = await self.server.request("observe", {})
+        response = await self._read_request("observe", {})
         if not response.get("success"):
             raise RuntimeError(response.get("reason", "world unavailable"))
         return self.server.observation
@@ -287,8 +304,8 @@ class FabricMinecraftPort(MinecraftPort):
 
     async def interaction_world(self, target: Vec3i) -> WorldState:
         world = await self.world_state()
-        bounds = Bounds(target.offset(-4, -4, -4), target.offset(4, 3, 4))
-        response = await self.server.request("observe_region", {"region": bounds.to_dict()})
+        bounds = Bounds(target.offset(-4, -6, -4), target.offset(4, 3, 4))
+        response = await self._read_request("observe_region", {"region": bounds.to_dict()})
         if not response.get("success") or any(not e.get("loaded") for e in response.get("blocks", [])):
             raise RuntimeError(response.get("reason", "interaction terrain unloaded"))
         self.server._apply_observation({"blocks": response["blocks"]})
@@ -296,7 +313,7 @@ class FabricMinecraftPort(MinecraftPort):
         return replace(world, observed_bounds=bounds)
 
     async def inspect_block(self, position: Vec3i) -> tuple[str, dict[str, str]]:
-        response = await self.server.request("observe_block", {"position": position.to_dict()}, timeout=5.0)
+        response = await self._read_request("observe_block", {"position": position.to_dict()}, timeout=5.0)
         if not response.get("success") or not response.get("loaded", False):
             raise RuntimeError(response.get("reason", "target chunk not loaded"))
         block, props = response["observedBlock"], response.get("properties", {})
@@ -311,7 +328,7 @@ class FabricMinecraftPort(MinecraftPort):
         result = {}
         # Small slices keep client-thread work bounded.
         for y in range(bounds.minimum.y, bounds.maximum.y + 1):
-            response = await self.server.request("observe_region", {"region": Bounds(
+            response = await self._read_request("observe_region", {"region": Bounds(
                 Vec3i(bounds.minimum.x, y, bounds.minimum.z), Vec3i(bounds.maximum.x, y, bounds.maximum.z)).to_dict()})
             if not response.get("success"):
                 raise RuntimeError(response.get("reason", "region scan failed"))

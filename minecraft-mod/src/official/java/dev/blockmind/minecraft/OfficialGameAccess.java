@@ -21,6 +21,50 @@ final class OfficialGameAccess implements GameAccess {
     private int rotationCount, selectionCount;
     private final java.util.Map<String, Integer> materialSlots = new java.util.LinkedHashMap<>();
     @Override public boolean creative() { return client.player.getAbilities().instabuild; }
+    private boolean flightRequested, flightOwned, previousFlight;
+    private Object flightPlayer;
+    @Override public boolean flying() { return ready() && client.player.getAbilities().flying; }
+    @Override public boolean configureFlight(boolean enabled) {
+        if (!enabled) flightRequested = false;
+        if (!ready() || client.player != flightPlayer) { flightOwned = false; flightPlayer = null; }
+        if (!ready()) return !enabled;
+        if (enabled && (!creative() || !client.player.getAbilities().mayfly)) return false;
+        flightRequested = enabled;
+        if (enabled) {
+            if (!flightOwned) { previousFlight = flying(); flightOwned = true; flightPlayer = client.player; }
+            tickFlight();
+        } else if (flightOwned && (previousFlight || client.player.onGround())) {
+            client.player.getAbilities().flying = previousFlight;
+            client.player.onUpdateAbilities(); flightOwned = false;
+        }
+        // On cancellation in midair, keep normal Creative hovering rather than
+        // disabling the ability and causing an unrequested fall.
+        return true;
+    }
+    @Override public void tickFlight() {
+        if (!flightRequested || !ready() || client.player != flightPlayer || !creative() || flying()) return;
+        if (client.player.onGround()) client.options.keyJump.setDown(true);
+        else {
+            client.player.getAbilities().flying = true; client.player.onUpdateAbilities();
+            client.options.keyJump.setDown(false);
+        }
+    }
+    @Override public String flightMove(Pos target) {
+        if (!ready() || !creative() || !flightRequested) return "Creative flight unavailable";
+        tickFlight();
+        if (!flying()) return "moving";
+        releaseMovement();
+        double dx=target.x()+.5-client.player.getX(), dy=target.y()+.35-client.player.getY(), dz=target.z()+.5-client.player.getZ();
+        Vec3 velocity=client.player.getDeltaMovement();
+        if (dx*dx+dz*dz < .0225 && Math.abs(dy)<.1 && velocity.lengthSqr()<.0025) return "arrived";
+        double steerX=dx-velocity.x*2.5, steerZ=dz-velocity.z*2.5, steerY=dy-velocity.y*2.5;
+        if (steerX*steerX+steerZ*steerZ>.0225) {
+            look((float)Math.toDegrees(Math.atan2(-steerX,steerZ)),0);
+            client.options.keyUp.setDown(true);
+        }
+        client.options.keyJump.setDown(steerY>.1); client.options.keyShift.setDown(steerY<-.1);
+        return "moving";
+    }
     @Override public void configureAudio(boolean mute, boolean restore) { audio.begin(mute, restore); }
     @Override public void finishAudio() { audio.finish(); }
     @Override public JsonObject performance() {
@@ -46,6 +90,7 @@ final class OfficialGameAccess implements GameAccess {
     private Pos point(BlockPos p) { return new Pos(p.getX(), p.getY(), p.getZ()); }
     @Override public boolean ready() { return client.player != null && client.level != null && client.gameMode != null; }
     @Override public Pos playerPosition() { return client.player == null ? new Pos(0, 0, 0) : point(client.player.blockPosition()); }
+    @Override public double[] precisePosition() { return new double[]{client.player.getX(), client.player.getY(), client.player.getZ()}; }
     @Override public String dimension() { return client.level.dimension().identifier().toString(); }
     private static <T extends Comparable<T>> String property(BlockState state, Property<T> property) { return property.getName(state.getValue(property)); }
 
@@ -68,6 +113,7 @@ final class OfficialGameAccess implements GameAccess {
         player.addProperty("dimension", dimension()); player.addProperty("health", client.player.getHealth());
         player.addProperty("hunger", client.player.getFoodData().getFoodLevel());
         player.addProperty("creative", client.player.getAbilities().instabuild); player.addProperty("onGround", client.player.onGround());
+        player.addProperty("flying", flying());
         JsonArray eye = new JsonArray(); eye.add(client.player.getEyePosition().x); eye.add(client.player.getEyePosition().y); eye.add(client.player.getEyePosition().z); player.add("eye", eye);
         JsonArray velocity = new JsonArray(); Vec3 v = client.player.getDeltaMovement(); velocity.add(v.x); velocity.add(v.y); velocity.add(v.z); player.add("velocity", velocity);
         JsonArray inventory = new JsonArray();
@@ -140,6 +186,8 @@ final class OfficialGameAccess implements GameAccess {
         if (!client.level.hasChunkAt(pos(p))) return "target chunk unloaded";
         if (!client.level.getBlockState(pos(p)).canBeReplaced()) return "target occupied";
         if (client.player.getBoundingBox().intersects(new AABB(pos(p)))) return "player collision at target";
+        if (flightRequested && flying() && MovementSafety.blocksFlightClearance(p,precisePosition()))
+            return "placement would block owned flight clearance";
         if (!BuiltInRegistries.BLOCK.containsKey(Identifier.parse(block)) || !material(block)) return "material unavailable";
         for (Direction side : Direction.values()) {
             BlockPos support = pos(p).relative(side); BlockState supportState = client.level.getBlockState(support);
@@ -208,6 +256,17 @@ final class OfficialGameAccess implements GameAccess {
         if (state.is(Blocks.MAGMA_BLOCK)) return "hot_surface";
         return "";
     }
+    @Override public String unsafeFlight(Pos feet) {
+        if (!ready() || !creative() || !client.level.hasChunkAt(pos(feet))) return "unloaded or non-Creative flight";
+        if (feet.y()<=client.level.getMinY()+2) return "void risk";
+        for (int y=0;y<=2;y++) {
+            BlockState state=client.level.getBlockState(pos(feet.add(0,y,0)));
+            if (!hazard(state).isEmpty()) return "hazard: "+hazard(state);
+            if (state.is(Blocks.WATER)) return "water flight rejected";
+            if (!state.getCollisionShape(client.level,pos(feet.add(0,y,0))).isEmpty()) return "flight collision";
+        }
+        return "";
+    }
     @Override public String unsafe(Pos feet) {
         if (!ready() || !client.level.hasChunkAt(pos(feet))) return "unloaded terrain";
         if (feet.y() <= client.level.getMinY() + 2) return "void risk";
@@ -227,6 +286,17 @@ final class OfficialGameAccess implements GameAccess {
         Vec3 velocity = client.player.getDeltaMovement();
         Pos next = MovementSafety.projectedFeet(client.player.getX(), client.player.getY(), client.player.getZ(),
             velocity.x, velocity.y, velocity.z, client.player.onGround());
+        if (flying() && creative()) {
+            if (velocity.y < 0) next = MovementSafety.clipDescendingToSupport(next, client.player.getY(), p ->
+                !client.level.getBlockState(pos(p)).getCollisionShape(client.level, pos(p)).isEmpty());
+            return unsafeFlight(next);
+        }
+          if (velocity.y < 0) {
+              String actualDanger = unsafe(playerPosition());
+              if (!actualDanger.isEmpty() && !actualDanger.equals("feet/head collision")) return actualDanger;
+              next = MovementSafety.clipDescendingToSupport(next, client.player.getY(), p ->
+                  !client.level.getBlockState(pos(p)).getCollisionShape(client.level, pos(p)).isEmpty());
+          }
         // Guard immediate predicted movement, including a falling Creative player.
         String danger = unsafe(next);
         if (danger.equals("feet/head collision")) return client.player.isInWall() ? "suffocation" : "";

@@ -12,6 +12,34 @@ PROMPT = "Build a small modern two-story house using white concrete and dark oak
 
 
 class PerformanceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_local_strict_fallback_does_not_report_whole_project_complete(self):
+        port,project=self.setup_project(4)
+        builder=Builder(port,SafeSimulatedNavigationProvider(),config=ExecutionConfig())
+        await builder._execute_strict(project,operations=project.plan.operations[:1],cleanup=False)
+        self.assertEqual(project.status,ProjectStatus.BUILDING)
+        self.assertEqual(len(project.completed_operation_ids),1)
+
+    def test_missing_or_reset_adapter_counters_are_unknown_not_zero_or_negative(self):
+        from blockmind.performance import counter_delta
+        self.assertIsNone(counter_delta({'travel':148},{},'travel'))
+        self.assertIsNone(counter_delta({}, {'travel':210},'travel'))
+        self.assertIsNone(counter_delta({'travel':148},{'travel':0},'travel'))
+        self.assertIsNone(counter_delta({'travel':False},{'travel':1},'travel'))
+        self.assertEqual(counter_delta({'travel':148},{'travel':210},'travel'),62)
+        self.assertEqual(counter_delta({'travel':0},{'travel':0},'travel'),0)
+
+    async def test_resume_does_not_count_preexisting_attempts_as_new_verified_placements(self):
+        port,project=self.setup_project(4)
+        old=project.plan.operations[0]
+        old.attempts=1
+        await port.place_block(old)
+        builder=Builder(port,SafeSimulatedNavigationProvider(),config=ExecutionConfig())
+        await builder.reconcile(project)
+        await builder.execute(project)
+        self.assertTrue((await Validator().validate(project,port)).verified)
+        self.assertEqual(builder.metrics.counts['blocks_placed'],3)
+        self.assertNotIn(old.id,builder._placed_ids)
+
     def setup_project(self, count=16):
         class FastPort(SimulatedMinecraftPort): supports_fast = True
         port = FastPort()

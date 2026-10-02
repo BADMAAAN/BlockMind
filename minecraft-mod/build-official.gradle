@@ -16,9 +16,10 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
 }
+def expandedVersion = version
 processResources {
-    inputs.properties(version: project.version, minecraft: target.minecraft, java: target.java)
-    filesMatching('fabric.mod.json') { expand version: project.version, minecraft: target.minecraft, java: target.java }
+    inputs.properties(version: expandedVersion, minecraft: target.minecraft, java: target.java)
+    filesMatching('fabric.mod.json') { expand version: expandedVersion, minecraft: target.minecraft, java: target.java }
 }
 tasks.withType(JavaCompile).configureEach { options.release = target.java }
 java { withSourcesJar(); sourceCompatibility = JavaVersion.toVersion(target.java); targetCompatibility = JavaVersion.toVersion(target.java) }

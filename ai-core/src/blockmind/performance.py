@@ -4,6 +4,16 @@ from contextlib import contextmanager
 from time import perf_counter
 
 
+def counter_delta(before, after, name):
+    """Missing/reset adapter counters are unknown, never fake zero/negative travel."""
+    start, end = before.get(name), after.get(name)
+    if (isinstance(start, bool) or isinstance(end, bool)
+            or not isinstance(start, (int, float)) or not isinstance(end, (int, float))
+            or end < start):
+        return None
+    return end-start
+
+
 class PerformanceMetrics:
     def __init__(self):
         self.started = perf_counter()
